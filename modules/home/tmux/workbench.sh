@@ -163,23 +163,6 @@ pane_cwd() {
   fi
 }
 
-visible_primary_pane() {
-  local window="$1" focus role owner
-
-  focus="$(window_option "$window" @focus-pane)"
-  if [[ -n "$focus" ]] && pane_in_window "$focus" "$window"; then
-    role="$(pane_option "$focus" @pane-role)"
-    owner="$(pane_option "$focus" @workbench-window)"
-    if [[ "$owner" == "$window" && ( "$role" == agent || "$role" == editor ) ]]; then
-      printf '%s\n' "$focus"
-      return
-    fi
-  fi
-
-  "$tmux_bin" list-panes -t "$window" -F '#{pane_id}	#{@pane-role}	#{@workbench-window}' 2>/dev/null |
-    awk -F '\t' -v window="$window" '$3 == window && ($2 == "agent" || $2 == "editor") { print $1; exit }'
-}
-
 window_task_root() {
   local window="$1" root
 
@@ -236,7 +219,7 @@ heal_workbench_pane() {
 
 heal_workbench_window() {
   local window="$1" session term_session default_term_session term_window
-  local agent editor focus parked
+  local agent editor focus parked park_window
 
   is_workbench_window "$window" || return 0
   set_workbench_window_options "$window"
@@ -251,13 +234,23 @@ heal_workbench_window() {
   editor="$(window_option "$window" @editor-pane)"
   focus="$(window_option "$window" @focus-pane)"
   parked="$(window_option "$window" @parked-primary-pane)"
+  park_window="$(window_option "$window" @park-window)"
 
   heal_workbench_pane "$agent" "$window" agent
-  heal_workbench_pane "$editor" "$window" editor
-  if [[ -n "$focus" && "$focus" != "$agent" && "$focus" != "$editor" ]]; then
+  if [[ -n "$editor" && "$editor" != "$agent" ]]; then
+    if pane_exists "$agent" && pane_exists "$editor" && ! pane_in_window "$agent" "$window" && pane_in_window "$editor" "$window"; then
+      "$tmux_bin" swap-pane -s "$editor" -t "$agent" 2>/dev/null || true
+    fi
+    kill_window_if_exists "$park_window"
+    unset_window_option "$window" @editor-pane
+    unset_window_option "$window" @park-session
+    unset_window_option "$window" @park-window
+    editor=""
+  fi
+  if [[ -n "$focus" && "$focus" != "$agent" ]]; then
     unset_window_option "$window" @focus-pane
   fi
-  if [[ -n "$parked" && "$parked" != "$agent" && "$parked" != "$editor" ]]; then
+  if [[ -n "$parked" && "$parked" != "$agent" ]]; then
     unset_window_option "$window" @parked-primary-pane
   fi
 
@@ -722,84 +715,23 @@ workbench_session_for_context() {
 }
 
 set_roles_for_new_window() {
-  local window="$1" agent="$2" editor="$3"
+  local window="$1" agent="$2"
 
   set_pane_option "$agent" @pane-role agent
-  set_pane_option "$editor" @pane-role editor
 
   set_pane_option "$agent" @workbench-window "$window"
-  set_pane_option "$editor" @workbench-window "$window"
 
   set_window_option "$window" @agent-pane "$agent"
-  set_window_option "$window" @editor-pane "$editor"
+  unset_window_option "$window" @editor-pane
   set_window_option "$window" @focus-pane "$agent"
-  set_window_option "$window" @parked-primary-pane "$editor"
+  unset_window_option "$window" @parked-primary-pane
+  unset_window_option "$window" @park-session
+  unset_window_option "$window" @park-window
   set_window_option "$window" @primary agent
 }
 
-create_parked_editor() {
-  local window="$1" root name park_session park_name park_window pane
-
-  root="$(window_option "$window" @task-root)"
-  [[ -n "$root" && -d "$root" ]] || return 1
-
-  name="$(window_option "$window" @task-name)"
-  park_session="${WORKBENCH_PARK_SESSION:-__workbench-park}"
-  park_name="$(safe_key "park-${window#@}-${name:-editor}")"
-
-  if "$tmux_bin" has-session -t "$park_session" 2>/dev/null; then
-    park_window="$("$tmux_bin" new-window -d -P -F '#{window_id}' -t "$park_session:" -n "$park_name" -c "$root" 'nvim .')"
-  else
-    park_window="$("$tmux_bin" new-session -d -P -F '#{window_id}' -s "$park_session" -n "$park_name" -c "$root" 'nvim .')"
-  fi
-  set_workbench_window_options "$park_window"
-
-  pane="$("$tmux_bin" list-panes -t "$park_window" -F '#{pane_id}' | head -n 1)"
-  set_pane_option "$pane" @pane-role editor
-  set_pane_option "$pane" @workbench-window "$window"
-
-  set_window_option "$window" @park-session "$park_session"
-  set_window_option "$window" @park-window "$park_window"
-  set_window_option "$window" @editor-pane "$pane"
-  set_window_option "$window" @parked-primary-pane "$pane"
-  set_window_option "$park_window" @parked-for "$window"
-
-  printf '%s\n' "$pane"
-}
-
-create_parked_agent() {
-  local window="$1" root name park_session park_name park_window pane
-
-  root="$(window_option "$window" @task-root)"
-  [[ -n "$root" && -d "$root" ]] || return 1
-
-  name="$(window_option "$window" @task-name)"
-  park_session="${WORKBENCH_PARK_SESSION:-__workbench-park}"
-  park_name="$(safe_key "park-${window#@}-${name:-agent}")"
-
-  if "$tmux_bin" has-session -t "$park_session" 2>/dev/null; then
-    park_window="$("$tmux_bin" new-window -d -P -F '#{window_id}' -t "$park_session:" -n "$park_name" -c "$root")"
-  else
-    park_window="$("$tmux_bin" new-session -d -P -F '#{window_id}' -s "$park_session" -n "$park_name" -c "$root")"
-  fi
-  set_workbench_window_options "$park_window"
-
-  pane="$("$tmux_bin" list-panes -t "$park_window" -F '#{pane_id}' | head -n 1)"
-  set_pane_option "$pane" @pane-role agent
-  set_pane_option "$pane" @workbench-window "$window"
-
-  set_window_option "$window" @park-session "$park_session"
-  set_window_option "$window" @park-window "$park_window"
-  set_window_option "$window" @agent-pane "$pane"
-  set_window_option "$window" @parked-primary-pane "$pane"
-  set_window_option "$park_window" @parked-for "$window"
-
-  "$tmux_bin" send-keys -t "$pane" "$agent_cmd" Enter
-  printf '%s\n' "$pane"
-}
-
 ensure_agent_pane() {
-  local window="$1" agent park_window
+  local window="$1" agent pane root
 
   agent="$(window_option "$window" @agent-pane)"
   if [[ -n "$agent" ]] && pane_exists "$agent"; then
@@ -808,30 +740,19 @@ ensure_agent_pane() {
     return 0
   fi
 
-  park_window="$(window_option "$window" @park-window)"
-  if [[ -n "$park_window" ]] && window_exists "$park_window"; then
-    "$tmux_bin" kill-window -t "$park_window" 2>/dev/null || true
-  fi
+  root="$(window_task_root "$window" || true)"
+  [[ -n "$root" ]] || return 1
+  pane="$("$tmux_bin" list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | head -n 1)"
+  [[ -n "$pane" ]] || pane="$("$tmux_bin" split-window -d -c "$root" -t "$window" -P -F '#{pane_id}')"
 
-  create_parked_agent "$window"
-}
-
-ensure_editor_pane() {
-  local window="$1" editor park_window
-
-  editor="$(window_option "$window" @editor-pane)"
-  if [[ -n "$editor" ]] && pane_exists "$editor"; then
-    heal_workbench_pane "$editor" "$window" editor
-    printf '%s\n' "$editor"
-    return 0
-  fi
-
-  park_window="$(window_option "$window" @park-window)"
-  if [[ -n "$park_window" ]] && window_exists "$park_window"; then
-    "$tmux_bin" kill-window -t "$park_window" 2>/dev/null || true
-  fi
-
-  create_parked_editor "$window"
+  set_pane_option "$pane" @pane-role agent
+  set_pane_option "$pane" @workbench-window "$window"
+  set_window_option "$window" @agent-pane "$pane"
+  set_window_option "$window" @focus-pane "$pane"
+  set_window_option "$window" @primary agent
+  unset_window_option "$window" @parked-primary-pane
+  "$tmux_bin" send-keys -t "$pane" "$agent_cmd" Enter
+  printf '%s\n' "$pane"
 }
 
 window_exists() {
@@ -1022,9 +943,6 @@ pane_matches_workbench_role() {
     agent)
       [[ "$command" == codex || "$command" == codex-raw || "$pane_role" == agent ]]
       ;;
-    editor)
-      [[ "$command" == nvim || "$pane_role" == editor ]]
-      ;;
     *)
       return 1
       ;;
@@ -1041,42 +959,6 @@ primary_workbench_pane_for_window() {
         printf 'agent\t%s\t%s\n' "$pane" "$path"
         return 0
       fi
-      if pane_matches_workbench_role editor "$command" "$role"; then
-        printf 'editor\t%s\t%s\n' "$pane" "$path"
-        return 0
-      fi
-    done
-}
-
-find_parked_pane_for_window() {
-  local workbench_window="$1" task_name="$2" root="$3" wanted_role="$4"
-  local park_session park_window window_name parked_for pane command path role owner
-
-  park_session="${WORKBENCH_PARK_SESSION:-__workbench-park}"
-  "$tmux_bin" has-session -t "$park_session" 2>/dev/null || return 0
-
-  "$tmux_bin" list-windows -t "$park_session" -F '#{window_id}	#{window_name}	#{@parked-for}' 2>/dev/null |
-    while IFS=$'\t' read -r park_window window_name parked_for; do
-      [[ -n "$park_window" ]] || continue
-      IFS=$'\t' read -r pane command path role owner < <(
-        "$tmux_bin" list-panes -t "$park_window" -F '#{pane_id}	#{pane_current_command}	#{pane_current_path}	#{@pane-role}	#{@workbench-window}' 2>/dev/null |
-          head -n 1
-      )
-      [[ -n "$pane" && -n "$path" && -d "$path" ]] || continue
-      pane_matches_workbench_role "$wanted_role" "$command" "$role" || continue
-
-      if [[ "$parked_for" == "$workbench_window" || "$owner" == "$workbench_window" ]]; then
-        printf '%s\t%s\n' "$park_window" "$pane"
-        return 0
-      fi
-
-      [[ "$path" == "$root" ]] || continue
-      case "$window_name" in
-        park-*-"$task_name")
-          printf '%s\t%s\n' "$park_window" "$pane"
-          return 0
-          ;;
-      esac
     done
 }
 
@@ -1110,7 +992,7 @@ find_terminal_window_for_workbench() {
 
 recover_restored_window() {
   local window="$1" session task_name primary_record primary_role primary_pane root
-  local agent_pane editor_pane parked_record park_window parked_pane term_session term_window
+  local agent_pane term_session term_window
 
   window_exists "$window" || return 0
   session="$("$tmux_bin" display -p -t "$window" '#{session_name}' 2>/dev/null || true)"
@@ -1140,41 +1022,13 @@ recover_restored_window() {
   unset_window_option "$window" @term-root
   unset_window_option "$window" @parked-for
 
-  if [[ "$primary_role" == agent ]]; then
-    agent_pane="$primary_pane"
-    set_window_option "$window" @agent-pane "$agent_pane"
-    set_pane_option "$agent_pane" @pane-role agent
-    set_pane_option "$agent_pane" @workbench-window "$window"
-
-    parked_record="$(find_parked_pane_for_window "$window" "$task_name" "$root" editor | head -n 1)"
-    if [[ -n "$parked_record" ]]; then
-      IFS=$'\t' read -r park_window parked_pane <<<"$parked_record"
-      editor_pane="$parked_pane"
-      set_window_option "$window" @editor-pane "$editor_pane"
-      set_window_option "$window" @parked-primary-pane "$editor_pane"
-    fi
-  else
-    editor_pane="$primary_pane"
-    set_window_option "$window" @editor-pane "$editor_pane"
-    set_pane_option "$editor_pane" @pane-role editor
-    set_pane_option "$editor_pane" @workbench-window "$window"
-
-    parked_record="$(find_parked_pane_for_window "$window" "$task_name" "$root" agent | head -n 1)"
-    if [[ -n "$parked_record" ]]; then
-      IFS=$'\t' read -r park_window parked_pane <<<"$parked_record"
-      agent_pane="$parked_pane"
-      set_window_option "$window" @agent-pane "$agent_pane"
-      set_window_option "$window" @parked-primary-pane "$agent_pane"
-    fi
-  fi
-
-  if [[ -n "${park_window:-}" && -n "${parked_pane:-}" ]]; then
-    set_window_option "$window" @park-session "${WORKBENCH_PARK_SESSION:-__workbench-park}"
-    set_window_option "$window" @park-window "$park_window"
-    set_window_option "$park_window" @parked-for "$window"
-    set_pane_option "$parked_pane" @pane-role "$([[ "$primary_role" == agent ]] && printf editor || printf agent)"
-    set_pane_option "$parked_pane" @workbench-window "$window"
-  fi
+  [[ "$primary_role" == agent ]] || return 0
+  agent_pane="$primary_pane"
+  set_window_option "$window" @agent-pane "$agent_pane"
+  unset_window_option "$window" @editor-pane
+  unset_window_option "$window" @parked-primary-pane
+  set_pane_option "$agent_pane" @pane-role agent
+  set_pane_option "$agent_pane" @workbench-window "$window"
 
   term_session="$(terminal_session_name "$session")"
   set_window_option "$window" @term-session "$term_session"
@@ -1358,31 +1212,18 @@ fast_select_window() {
 }
 
 fast_show_primary() {
-  local window="$1" desired="${2:-}" record root primary agent editor parked
+  local window="$1" desired="${2:-}" record root agent
   local target target_role pane_record target_window pane_role owner
-  local current selected
+  local selected
 
-  record="$("$tmux_bin" display -p -t "$window" '#{@task-root}|#{@primary}|#{@agent-pane}|#{@editor-pane}|#{@parked-primary-pane}' 2>/dev/null || true)"
-  IFS='|' read -r root primary agent editor parked <<<"$record"
+  record="$("$tmux_bin" display -p -t "$window" '#{@task-root}|#{@agent-pane}' 2>/dev/null || true)"
+  IFS='|' read -r root agent <<<"$record"
   [[ -n "$root" && -d "$root" ]] || return 1
 
   case "$desired" in
-    agent)
+    agent | "")
       target="$agent"
       target_role=agent
-      ;;
-    editor)
-      target="$editor"
-      target_role=editor
-      ;;
-    "")
-      if [[ "$primary" == editor ]]; then
-        target="$agent"
-        target_role=agent
-      else
-        target="$editor"
-        target_role=editor
-      fi
       ;;
     *) return 1 ;;
   esac
@@ -1392,15 +1233,9 @@ fast_show_primary() {
   IFS='|' read -r target_window pane_role owner <<<"$pane_record"
   [[ -n "$target_window" && "$pane_role" == "$target_role" && "$owner" == "$window" ]] || return 1
 
-  if [[ "$target_window" != "$window" ]]; then
-    current="$(visible_primary_pane "$window")"
-    [[ -n "$current" ]] || return 1
-    "$tmux_bin" swap-pane -s "$current" -t "$target" 2>/dev/null || return 1
-    set_window_option "$window" @parked-primary-pane "$current"
-  else
-    selected="$("$tmux_bin" display -p -t "$window" '#{pane_id}' 2>/dev/null || true)"
-    [[ "$selected" == "$target" ]] || "$tmux_bin" select-pane -t "$target" 2>/dev/null || return 1
-  fi
+  [[ "$target_window" == "$window" ]] || return 1
+  selected="$("$tmux_bin" display -p -t "$window" '#{pane_id}' 2>/dev/null || true)"
+  [[ "$selected" == "$target" ]] || "$tmux_bin" select-pane -t "$target" 2>/dev/null || return 1
 
   set_window_option "$window" @focus-pane "$target"
   set_window_option "$window" @primary "$target_role"
@@ -1410,7 +1245,7 @@ select_primary() {
   local desired="${1:-agent}" window target workbench_session workbench_window
 
   case "$desired" in
-    agent | editor) ;;
+    agent | "") desired=agent ;;
     *) return 0 ;;
   esac
 
@@ -1477,25 +1312,22 @@ pair_toggle() {
 }
 
 layout_window() {
-  local window="${1:-}" agent editor
+  local window="${1:-}" agent
 
   [[ -n "$window" ]] || window="$(current_window)"
   is_workbench_window "$window" || return 0
   heal_workbench_window "$window"
 
   agent="$(window_option "$window" @agent-pane)"
-  editor="$(window_option "$window" @editor-pane)"
-  [[ -n "$agent" && -n "$editor" ]] || return 0
+  [[ -n "$agent" ]] || return 0
   if pane_in_window "$agent" "$window"; then
     "$tmux_bin" select-pane -t "$agent" 2>/dev/null || true
-  elif pane_in_window "$editor" "$window"; then
-    "$tmux_bin" select-pane -t "$editor" 2>/dev/null || true
   fi
 }
 
 create_window() {
   local session="${1:-}" name="${2:-}" root="${3:-}" mode="${4:-reuse}"
-  local existing window agent editor
+  local existing window agent
 
   [[ -n "$session" && -n "$name" && -n "$root" ]] || fail "usage: workbench.sh create SESSION NAME ROOT"
   is_workbench_helper_session "$session" && fail "refusing to create workbench window in helper session: $session"
@@ -1524,8 +1356,7 @@ create_window() {
   set_window_option "$window" @agent-summary "ready"
   set_window_option "$window" @agent-updated "$(now_epoch)"
 
-  editor="$(create_parked_editor "$window")"
-  set_roles_for_new_window "$window" "$agent" "$editor"
+  set_roles_for_new_window "$window" "$agent"
   ensure_paired_terminal_window "$window" >/dev/null
 
   "$tmux_bin" send-keys -t "$agent" "$agent_cmd" Enter
@@ -1580,66 +1411,32 @@ toggle_primary() {
 }
 
 show_primary() {
-  local window="$1" desired="${2:-}" root current agent editor target target_role parked primary selected
-  local swapped=0
+  local window="$1" desired="${2:-}" root agent target target_role selected
 
   root="$(window_task_root "$window" || true)"
   [[ -n "$root" ]] || return 0
   heal_workbench_window "$window"
 
   case "$desired" in
-    agent)
+    agent | "")
       agent="$(ensure_agent_pane "$window" || true)"
       [[ -n "$agent" ]] || return 0
       target="$agent"
       target_role=agent
       ;;
-    editor)
-      editor="$(ensure_editor_pane "$window" || true)"
-      [[ -n "$editor" ]] || return 0
-      target="$editor"
-      target_role=editor
-      ;;
-    "")
-      primary="$(window_option "$window" @primary)"
-      if [[ "$primary" == editor ]]; then
-        agent="$(ensure_agent_pane "$window" || true)"
-        [[ -n "$agent" ]] || return 0
-        target="$agent"
-        target_role=agent
-      else
-        editor="$(ensure_editor_pane "$window" || true)"
-        [[ -n "$editor" ]] || return 0
-        target="$editor"
-        target_role=editor
-      fi
-      ;;
     *) return 0 ;;
   esac
 
-  if ! pane_in_window "$target" "$window"; then
-    current="$(visible_primary_pane "$window")"
-    [[ -n "$current" ]] || return 0
-    parked="$(window_option "$window" @parked-primary-pane)"
-    if [[ -z "$parked" || "$parked" != "$target" ]]; then
-      parked="$target"
-    fi
-    pane_exists "$parked" || return 0
-    "$tmux_bin" swap-pane -s "$current" -t "$parked" 2>/dev/null || return 0
-    set_window_option "$window" @parked-primary-pane "$current"
-    swapped=1
-  fi
+  pane_in_window "$target" "$window" || return 0
 
   set_window_option "$window" @focus-pane "$target"
   set_window_option "$window" @primary "$target_role"
-  if ((swapped == 0)); then
-    selected="$("$tmux_bin" display -p -t "$window" '#{pane_id}' 2>/dev/null || true)"
-    [[ "$selected" == "$target" ]] || "$tmux_bin" select-pane -t "$target" 2>/dev/null || true
-  fi
+  selected="$("$tmux_bin" display -p -t "$window" '#{pane_id}' 2>/dev/null || true)"
+  [[ "$selected" == "$target" ]] || "$tmux_bin" select-pane -t "$target" 2>/dev/null || true
 }
 
 handle_primary_pane_died() {
-  local pane="${1:-}" role owner pane_window target target_role target_pane target_label
+  local pane="${1:-}" role owner
   local focus parked park_window session
 
   [[ -n "$pane" ]] || return 0
@@ -1647,19 +1444,7 @@ handle_primary_pane_died() {
 
   role="$(pane_option "$pane" @pane-role)"
   owner="$(pane_option "$pane" @workbench-window)"
-  case "$role" in
-    agent)
-      target_role=editor
-      target_label=editor
-      ;;
-    editor)
-      target_role=agent
-      target_label=agent
-      ;;
-    *)
-      return 0
-      ;;
-  esac
+  [[ "$role" == agent || "$role" == editor ]] || return 0
 
   [[ -n "$owner" ]] || return 0
   if ! window_exists "$owner"; then
@@ -1669,7 +1454,6 @@ handle_primary_pane_died() {
   is_workbench_window "$owner" || return 0
   set_workbench_window_options "$owner"
 
-  pane_window="$("$tmux_bin" display -p -t "$pane" '#{window_id}' 2>/dev/null || true)"
   session="$("$tmux_bin" display -p -t "$owner" '#{session_name}' 2>/dev/null || true)"
 
   if [[ "$role" == editor ]]; then
@@ -1682,34 +1466,6 @@ handle_primary_pane_died() {
   [[ "$focus" == "$pane" ]] && set_window_option "$owner" @focus-pane ""
   parked="$(window_option "$owner" @parked-primary-pane)"
   [[ "$parked" == "$pane" ]] && set_window_option "$owner" @parked-primary-pane ""
-
-  if [[ "$target_role" == agent ]]; then
-    target="$(ensure_agent_pane "$owner" || true)"
-  else
-    target="$(ensure_editor_pane "$owner" || true)"
-  fi
-
-  if [[ -n "$target" ]] && pane_exists "$target"; then
-    if [[ "$pane_window" == "$owner" ]] && ! pane_in_window "$target" "$owner"; then
-      if ! "$tmux_bin" swap-pane -s "$target" -t "$pane" 2>/dev/null; then
-        "$tmux_bin" join-pane -s "$target" -t "$pane" 2>/dev/null || true
-      fi
-    fi
-
-    if pane_in_window "$target" "$owner"; then
-      target_pane="$target"
-    else
-      target_pane="$(window_option "$owner" "@${target_label}-pane")"
-    fi
-
-    if [[ -n "$target_pane" ]] && pane_exists "$target_pane"; then
-      heal_workbench_pane "$target_pane" "$owner" "$target_role"
-      set_window_option "$owner" "@${target_label}-pane" "$target_pane"
-      set_window_option "$owner" @focus-pane "$target_pane"
-      set_window_option "$owner" @primary "$target_role"
-      "$tmux_bin" select-pane -t "$target_pane" 2>/dev/null || true
-    fi
-  fi
 
   "$tmux_bin" kill-pane -t "$pane" 2>/dev/null || true
   if [[ "$role" == editor ]]; then
@@ -1975,9 +1731,9 @@ commands:
   new
   main [SESSION]
   layout [WINDOW]
-  primary [agent|editor]
+  primary [agent]
   terminal
-  toggle-primary [agent|editor]
+  toggle-primary [agent]
   terminal-toggle
   pair-toggle
   terminal-close

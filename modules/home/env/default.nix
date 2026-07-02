@@ -29,7 +29,7 @@
     PULSE_COOKIE = "${config.xdg.stateHome}/pulse/cookie";
     XCURSOR_THEME = "capitaine-cursors-white";
     XCURSOR_SIZE = "24";
-    FLAKE = "${config.home.homeDirectory}/src/public/nix-config";
+    NH_FLAKE = "${config.home.homeDirectory}/src/public/nix-config";
     MANPAGER = "nvim +Man!";
     NPM_PACKAGES = "${config.home.homeDirectory}/.local/share/npm";
     NODE_PATH = "$NPM_PACKAGES/lib/node_modules:$NODE_PATH";

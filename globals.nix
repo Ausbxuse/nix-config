@@ -1,6 +1,6 @@
 {
-  email = "user@example.com";
-  name = "Nix User";
+  email = "peterzhaozzy@gmail.com";
+  name = "Zhenyu Zhao";
   nix.extraSubstituters = [];
   nix.extraTrustedPublicKeys = [];
   supported-systems = ["x86_64-linux" "aarch64-linux"];

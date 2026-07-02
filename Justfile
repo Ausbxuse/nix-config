@@ -46,7 +46,7 @@ sys:
 	fi
 
 home:
-  nh home switch --ask --diff always --fallback --configuration $(if [ -n "${SUDO_USER:-}" ]; then printf '%s' "$SUDO_USER"; else whoami; fi)@$(hostname) . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
+  env -u FLAKE nh home switch --ask --diff always --fallback --configuration $(if [ -n "${SUDO_USER:-}" ]; then printf '%s' "$SUDO_USER"; else whoami; fi)@$(hostname) . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
 
 sys-test:
 	nh os test --bypass-root-check --ask --diff always --fallback --hostname $(hostname) . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}

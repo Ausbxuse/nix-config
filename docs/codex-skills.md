@@ -46,10 +46,23 @@ The generated skill-pack flake exports:
 
 Each selected skill must exist under `skills/<name>/` and contain `SKILL.md`.
 
+## Built-In Skills
+
+The home module deploys two built-in skills before merging any external
+skill-pack source:
+
+- `$fix`: default result-driven coding workflow. Use it for normal development
+  when you want Codex to own discovery, give one compact design checkpoint,
+  patch narrowly, and verify the requested result without reflexively adding
+  low-value tests.
+- `$p`: supervised parallel backlog workflow. Use it only for messy queues of
+  independent items where read-only exploration or clearly disjoint edits can
+  be fanned out.
+
 ## Deploy From nix-config
 
-The built-in `$p` skill is deployed by `modules/home/codex.nix`. Any host using
-the shared home profiles gets the global Codex skill directory populated at
+The built-in skills are deployed by `modules/home/codex.nix`. Any host using the
+shared home profiles gets the global Codex skill directory populated at
 activation time because those profiles import the Codex home module.
 
 To add extra skills from a skill-pack, add the skill-pack as a flake input in
