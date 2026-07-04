@@ -48,13 +48,9 @@ Each selected skill must exist under `skills/<name>/` and contain `SKILL.md`.
 
 ## Built-In Skills
 
-The home module deploys two built-in skills before merging any external
+The home module deploys one built-in skill before merging any external
 skill-pack source:
 
-- `$fix`: default result-driven coding workflow. Use it for normal development
-  when you want Codex to own discovery, give one compact design checkpoint,
-  patch narrowly, and verify the requested result without reflexively adding
-  low-value tests.
 - `$p`: supervised parallel backlog workflow. Use it only for messy queues of
   independent items where read-only exploration or clearly disjoint edits can
   be fanned out.
