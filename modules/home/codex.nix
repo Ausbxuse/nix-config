@@ -66,15 +66,6 @@
       ]
 
 
-      def parse_config(text):
-          if not text.strip():
-              return tomlkit.document()
-
-          # Repair the malformed line join from the previous activation script.
-          text = text.replace("]sandbox_mode =", "]\nsandbox_mode =")
-          return tomlkit.parse(text)
-
-
       def ensure_table(doc, key):
           table = doc.get(key)
           if isinstance(table, Table):
@@ -95,7 +86,7 @@
       else:
           text = ""
 
-      doc = parse_config(text)
+      doc = tomlkit.parse(text) if text.strip() else tomlkit.document()
       doc["model"] = model
       doc["model_reasoning_effort"] = reasoning_effort
       doc["notify"] = [notify_command]

@@ -80,10 +80,10 @@ in {
     home.activation.deployCodexSkills = lib.hm.dag.entryAfter ["writeBoundary"] ''
       target="${config.home.homeDirectory}/.agents/skills"
       ${pkgs.coreutils}/bin/mkdir -p "$target"
-      ${pkgs.coreutils}/bin/cp \
-        -R -L \
-        --no-preserve=mode,ownership \
-        --remove-destination \
+      ${pkgs.rsync}/bin/rsync \
+        -rL \
+        --delete \
+        --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
         ${mergedSkills}/. \
         "$target"/
     '';
