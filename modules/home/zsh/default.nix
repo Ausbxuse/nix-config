@@ -151,6 +151,11 @@ in {
         sort_dir_first = true;
         sort_reverse = true;
       };
+      preview = {
+        # Avoid overwhelming Ghostty's Wayland connection when moving quickly
+        # across images; Yazi's 30 ms default can enqueue previews too fast.
+        image_delay = 100;
+      };
       plugin = {
         prepend_previewers = [
           {

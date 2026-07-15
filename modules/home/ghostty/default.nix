@@ -9,6 +9,25 @@
   useNixGL =
     pkgs.stdenv.hostPlatform.isx86_64
     && !(hostDef.nixos.enable or false);
+  ghosttyBasePackage =
+    if useNixGL
+    then config.lib.nixGL.wrap pkgs.ghostty
+    else pkgs.ghostty;
+  ghosttyPackage =
+    if useNixGL
+    then
+      pkgs.symlinkJoin {
+        name = "ghostty-x11-${pkgs.ghostty.version}";
+        paths = [ghosttyBasePackage];
+        inherit (pkgs.ghostty) meta;
+        nativeBuildInputs = [pkgs.makeWrapper];
+        postBuild = ''
+          # GTK/Wayland exits on EAGAIN while Ghostty processes Kitty image
+          # previews. XWayland avoids that fatal display-flush path.
+          wrapProgram "$out/bin/ghostty" --set GDK_BACKEND x11
+        '';
+      }
+    else ghosttyBasePackage;
 in {
   xdg.configFile."ghostty/shaders/cursor_warp.glsl".source = ./cursor_warp.glsl;
 
@@ -24,10 +43,7 @@ in {
   programs = {
     ghostty = {
       enable = true;
-      package =
-        if useNixGL
-        then config.lib.nixGL.wrap pkgs.ghostty
-        else pkgs.ghostty;
+      package = ghosttyPackage;
       themes = {
         snappy = {
           palette = [
