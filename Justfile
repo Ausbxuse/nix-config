@@ -45,8 +45,15 @@ sys:
 		printf '\nBoot generation installed. Reboot to load NVIDIA %s.\n' "$target_nvidia"
 	fi
 
-home:
-  env -u FLAKE nh home switch --ask --diff always --fallback --configuration $(if [ -n "${SUDO_USER:-}" ]; then printf '%s' "$SUDO_USER"; else whoami; fi)@$(hostname) . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
+# Optionally select a configured host when activating from a differently named machine.
+# Usage: just home spacy
+home CONFIG='':
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	config='{{CONFIG}}'
+	if [ -z "$config" ]; then config="$(hostname)"; fi
+	env -u FLAKE nh home switch --ask --diff always --fallback --configuration $(if [ -n "${SUDO_USER:-}" ]; then printf '%s' "$SUDO_USER"; else whoami; fi)@"$config" . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
 
 sys-test:
 	nh os test --bypass-root-check --ask --diff always --fallback --hostname $(hostname) . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
@@ -64,6 +71,12 @@ nvidia-prime-bus-ids:
 # usage: make upp i=home-manager
 upp:
 	nix flake lock --update-input $(i)
+
+# Update the sadjow/codex-cli-nix input and activate the new Codex package.
+# Usage: just upgrade-codex [CONFIG]
+upgrade-codex CONFIG='':
+	nix flake update codex-cli-nix
+	just home {{CONFIG}}
 
 history:
 	nix profile history --profile /nix/var/nix/profiles/system
