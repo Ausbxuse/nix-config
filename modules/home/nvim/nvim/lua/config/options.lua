@@ -99,6 +99,21 @@ local function osc52_paste_from_cache(register)
   end
 end
 
+local function osc52_clipboard(name)
+  return {
+    name = name,
+    copy = {
+      ['+'] = osc52_copy_with_cache '+',
+      ['*'] = osc52_copy_with_cache '*',
+    },
+    paste = {
+      ['+'] = osc52_paste_from_cache '+',
+      ['*'] = osc52_paste_from_cache '*',
+    },
+    cache_enabled = 0,
+  }
+end
+
 vim.api.nvim_create_autocmd('VimLeavePre', {
   callback = function()
     stop_gnome_clipboard_job '+'
@@ -110,7 +125,9 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 if vim.env.TMUX and vim.env.TMUX ~= '' then
-  vim.g.clipboard = 'tmux'
+  -- Send OSC 52 from the pane so tmux forwards the yank to every client
+  -- displaying it. The tmux clipboard provider guesses a single client.
+  vim.g.clipboard = osc52_clipboard 'tmux-osc52-cache'
 elseif current_desktop:match 'GNOME' then
   vim.g.clipboard = {
     name = 'gnome-gtk',
@@ -126,18 +143,7 @@ elseif current_desktop:match 'GNOME' then
   }
 elseif term_program == 'ghostty' or term_program == 'WezTerm' then
   -- Avoid wl-clipboard popups on compositors like GNOME/Mutter by using terminal OSC 52.
-  vim.g.clipboard = {
-    name = 'terminal-osc52-cache',
-    copy = {
-      ['+'] = osc52_copy_with_cache '+',
-      ['*'] = osc52_copy_with_cache '*',
-    },
-    paste = {
-      ['+'] = osc52_paste_from_cache '+',
-      ['*'] = osc52_paste_from_cache '*',
-    },
-    cache_enabled = 0,
-  }
+  vim.g.clipboard = osc52_clipboard 'terminal-osc52-cache'
 else
   vim.g.clipboard = {
     name = 'wayland-lua',

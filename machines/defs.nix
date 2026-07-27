@@ -1,4 +1,8 @@
-{lib, const, ...}: {
+{
+  lib,
+  const,
+  ...
+}: {
   # Public staging registry for hosts that have not been admitted into the
   # private trust mesh yet. Canonical admitted host definitions live in the
   # private nix-secrets checkout at hosts.nix.
@@ -43,6 +47,29 @@
 
     nixos = {
       enable = false;
+    };
+  };
+
+  spacy = {
+    system = "x86_64-linux";
+    username = "zhenyu";
+    platform = "custom";
+    visibility = "private";
+
+    home = {
+      enable = true;
+      profile = "minimal-gui";
+      displayProfile = "gnome-default";
+    };
+
+    nixos = {
+      enable = false;
+    };
+
+    install = {
+      layout = "";
+      disk = "";
+      swapSize = "";
     };
   };
 }

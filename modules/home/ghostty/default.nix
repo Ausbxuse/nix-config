@@ -127,6 +127,7 @@ in {
         # gtk-adwaita = false;
         resize-overlay = "never";
         clipboard-read = "allow";
+        clipboard-write = "allow";
         clipboard-paste-protection = false;
         gtk-single-instance = false;
 
