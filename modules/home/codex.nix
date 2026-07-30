@@ -95,6 +95,9 @@
       tui = ensure_table(doc, "tui")
       tui["status_line"] = status_line
       tui["status_line_use_colors"] = True
+      tui["notifications"] = ["approval-requested", "plan-mode-prompt"]
+      tui["notification_method"] = "bel"
+      tui["notification_condition"] = "always"
 
       agents = ensure_table(doc, "agents")
       agents["max_threads"] = agent_max_threads

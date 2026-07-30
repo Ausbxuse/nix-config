@@ -208,6 +208,32 @@ is_paired_terminal_window_for() {
   [[ "$(window_option "$window" @workbench-window)" == "$workbench_window" ]]
 }
 
+sync_paired_terminal_state() {
+  local workbench_window="$1" term_window="${2:-}" state summary updated
+
+  [[ -n "$workbench_window" ]] || return 0
+  window_exists "$workbench_window" || return 0
+  [[ -n "$term_window" ]] || term_window="$(window_option "$workbench_window" @term-window)"
+  is_paired_terminal_window_for "$term_window" "$workbench_window" || return 0
+
+  state="$(window_option "$workbench_window" @agent-state)"
+  summary="$(window_option "$workbench_window" @agent-summary)"
+  updated="$(window_option "$workbench_window" @agent-updated)"
+
+  set_window_option "$term_window" @agent-state "${state:-idle}"
+  set_window_option "$term_window" @agent-summary "${summary:-${state:-idle}}"
+  set_window_option "$term_window" @agent-updated "${updated:-$(now_epoch)}"
+}
+
+set_agent_state_options() {
+  local window="$1" state="$2" summary="$3" updated="$4"
+
+  set_window_option "$window" @agent-state "$state"
+  set_window_option "$window" @agent-summary "$summary"
+  set_window_option "$window" @agent-updated "$updated"
+  sync_paired_terminal_state "$window"
+}
+
 heal_workbench_pane() {
   local pane="$1" window="$2" role="$3"
 
@@ -412,7 +438,7 @@ classify_state_summary() {
       state=blocked
       [[ -n "$summary" && "$summary" != \{* ]] || summary=blocked
       ;;
-    *approval* | *requires-input* | *needs-input* | *needs_input* | *user_attention* | *attention*)
+    *approval* | *permissionrequest* | *permission-request* | *permission_request* | *requires-input* | *needs-input* | *needs_input* | *request_user_input* | *elicitation_request* | *user_attention* | *attention*)
       state=waiting
       [[ -n "$summary" && "$summary" != \{* ]] || summary="needs attention"
       ;;
@@ -456,9 +482,7 @@ set_state() {
   fi
 
   updated="$(now_epoch)"
-  set_window_option "$window" @agent-state "$state"
-  set_window_option "$window" @agent-summary "${summary:-$state}"
-  set_window_option "$window" @agent-updated "$updated"
+  set_agent_state_options "$window" "$state" "${summary:-$state}" "$updated"
 
   case "$state" in
     waiting | needs-input | blocked | error | done)
@@ -518,6 +542,18 @@ codex_state_from_session() {
 
   while IFS= read -r line; do
     case "$line" in
+      *'"type":"exec_approval_request"'* | *'"type":"apply_patch_approval_request"'*)
+        state=waiting
+        summary="needs approval"
+        updated="$(now_epoch)"
+        break
+        ;;
+      *'"type":"request_user_input"'* | *'"type":"elicitation_request"'* | *'"name":"request_user_input"'* | *'"name":"request_permissions"'*)
+        state=waiting
+        summary="needs input"
+        updated="$(now_epoch)"
+        break
+        ;;
       *'"type":"task_started"'*)
         state=running
         summary=working
@@ -561,12 +597,15 @@ codex_state_from_pane() {
   local pane="$1" capture lowered updated
 
   [[ -n "$pane" ]] || return 0
-  capture="$("$tmux_bin" capture-pane -pJ -S -16 -t "$pane" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 8 || true)"
+  capture="$("$tmux_bin" capture-pane -pJ -S -40 -t "$pane" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 32 || true)"
   [[ -n "$capture" ]] || return 0
 
   updated="$(now_epoch)"
   lowered="${capture,,}"
   case "$lowered" in
+    *"approval requested:"* | *"needs your approval"* | *"do you want to approve"* | *"would you like to run"* | *"enter to submit answer"* | *"enter to submit all"*)
+      printf 'waiting\tneeds attention\t%s\n' "$updated"
+      ;;
     *"esc to interrupt"* | *"working ("*)
       printf 'running\tworking\t%s\n' "$updated"
       ;;
@@ -610,12 +649,10 @@ sync_agent_states() {
       [[ -n "$file" ]] && set_window_option "$window" @agent-session-scan "$((now / 1000))"
     fi
     if [[ -z "$file" ]]; then
-      if [[ "${current_state:-}" == running || "${current_state:-}" == done || "${current_state:-}" == idle || -z "${current_state:-}" ]]; then
-        IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
-        if [[ -n "$state" && "$state" != "$current_state" ]]; then
-          set_window_option "$window" @agent-state "$state"
-          set_window_option "$window" @agent-summary "$summary"
-          set_window_option "$window" @agent-updated "$updated"
+      IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
+      if [[ -n "$state" && "$state" != "$current_state" ]]; then
+        if [[ "$state" == waiting || "$current_state" == running || "$current_state" == done || "$current_state" == idle || -z "$current_state" || "$state" == running && "$current_state" == waiting ]]; then
+          set_agent_state_options "$window" "$state" "$summary" "$updated"
           changed=1
         fi
       fi
@@ -624,36 +661,34 @@ sync_agent_states() {
 
     file_sig="$(stat -c '%Y:%s' "$file" 2>/dev/null || true)"
     if [[ -n "$file_sig" && "$file_sig" == "$current_sig" && -n "$current_state" && -n "$current_updated" ]]; then
-      if [[ "$current_state" == done || "$current_state" == idle || "$current_state" == ready ]]; then
-        IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
-        if [[ "$state" == running && "$state" != "$current_state" ]]; then
-          set_window_option "$window" @agent-state "$state"
-          set_window_option "$window" @agent-summary "$summary"
-          set_window_option "$window" @agent-updated "$updated"
-          changed=1
-        fi
+      IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
+      if [[ -n "$state" && "$state" != "$current_state" ]] &&
+        {
+          [[ "$state" == waiting ]] ||
+            [[ "$state" == running && "$current_state" =~ ^(done|idle|ready)$ ]] ||
+            [[ "$state" == running && "$current_state" == waiting && "$current_summary" == "needs attention" ]]
+        }; then
+        set_agent_state_options "$window" "$state" "$summary" "$updated"
+        changed=1
       fi
       continue
     fi
 
     IFS=$'\t' read -r state summary updated < <(codex_state_from_session "$file")
     [[ -n "$state" ]] || continue
-    if [[ "$state" == done || "$state" == idle || "$state" == ready ]]; then
-      IFS=$'\t' read -r pane_state pane_summary pane_updated < <(codex_state_from_pane "$pane")
-      if [[ "$pane_state" == running ]]; then
-        state="$pane_state"
-        summary="$pane_summary"
-        updated="$pane_updated"
-      fi
+    IFS=$'\t' read -r pane_state pane_summary pane_updated < <(codex_state_from_pane "$pane")
+    if [[ "$pane_state" == waiting ]] ||
+      [[ "$pane_state" == running && "$state" =~ ^(done|idle|ready)$ ]]; then
+      state="$pane_state"
+      summary="$pane_summary"
+      updated="$pane_updated"
     fi
 
     if [[ "$state" == "$current_state" && "$summary" == "$current_summary" && "$updated" == "$current_updated" && "$file_sig" == "$current_sig" ]]; then
       continue
     fi
 
-    set_window_option "$window" @agent-state "$state"
-    set_window_option "$window" @agent-summary "$summary"
-    set_window_option "$window" @agent-updated "$updated"
+    set_agent_state_options "$window" "$state" "$summary" "$updated"
     set_window_option "$window" @agent-session-file "$file"
     [[ -n "$file_sig" ]] && set_window_option "$window" @agent-session-sig "$file_sig"
 
@@ -800,6 +835,7 @@ mark_paired_terminal_window() {
   set_window_option "$term_window" @workbench-session "$workbench_session"
   set_window_option "$term_window" @workbench-window "$workbench_window"
   set_window_option "$term_window" @term-root "$root"
+  sync_paired_terminal_state "$workbench_window" "$term_window"
 
   while IFS= read -r pane; do
     [[ -n "$pane" ]] || continue
@@ -868,6 +904,7 @@ sync_paired_terminal_index() {
   paired_for="$(window_option "$term_window" @workbench-window)"
   [[ "$paired_for" == "$window" ]] || return 0
   sync_terminal_window_index "$window" "$term_session" "$term_window"
+  sync_paired_terminal_state "$window" "$term_window"
 }
 
 sync_paired_terminal_indexes() {
@@ -1632,14 +1669,19 @@ summary() {
 }
 
 status_sync() {
-  local session
+  local session workbench_session
 
   session="${TMUX_WORKBENCH_SESSION:-}"
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
   [[ -n "$session" ]] || return 0
 
+  workbench_session="$session"
+  while [[ "$workbench_session" == *-terms ]]; do
+    workbench_session="${workbench_session%-terms}"
+  done
+
   WORKBENCH_SYNC_INTERVAL_MS="${WORKBENCH_STATUS_SYNC_INTERVAL_MS:-1000}" \
-    sync_agent_states "$session" >/dev/null 2>&1 || true
+    sync_agent_states "$workbench_session" >/dev/null 2>&1 || true
 }
 
 cmd="${1:-}"

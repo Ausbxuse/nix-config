@@ -40,21 +40,9 @@ return {
         -- auto_show = true,
         -- trigger = { prefetch_on_insert = false },
       },
-      -- TODO: better tab for snippets jump
       keymap = {
-        preset = 'default',
-        ['<Tab>'] = {
-          function(cmp)
-            if cmp.is_menu_visible() then
-              return cmp.select_and_accept()
-            end
-          end,
-          'fallback',
-        },
-
+        preset = 'super-tab',
         ['<C-s>'] = { 'show', 'show_documentation', 'hide_documentation' },
-        -- ['<c-e>'] = { 'snippet_forward', 'fallback' },
-        -- ['<c-y>'] = { 'snippet_backward', 'fallback' },
       },
 
       appearance = {
@@ -67,6 +55,13 @@ return {
       sources = {
         default = { 'lsp', 'path', 'snippets', 'buffer', 'copilot' },
         providers = {
+          path = {
+            opts = {
+              get_cwd = function()
+                return vim.fn.getcwd()
+              end,
+            },
+          },
           copilot = {
             name = 'copilot',
             module = 'blink-copilot',
