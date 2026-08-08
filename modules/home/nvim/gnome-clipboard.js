@@ -4,7 +4,7 @@ imports.gi.versions.Gdk = '3.0'
 imports.gi.versions.Gtk = '3.0'
 
 const ByteArray = imports.byteArray
-const {Gdk, GLib, Gtk} = imports.gi
+const {Gdk, Gio, GLib, Gtk} = imports.gi
 const System = imports.system
 
 function fail(message) {
@@ -18,7 +18,7 @@ function getClipboard(usePrimary) {
     throw new Error('No GDK display available')
   }
 
-  const selection = usePrimary ? Gdk.SELECTION_PRIMARY : Gdk.SELECTION_CLIPBOARD
+  const selection = usePrimary ? 'PRIMARY' : 'CLIPBOARD'
   return Gtk.Clipboard.get_for_display(display, selection)
 }
 
@@ -28,7 +28,13 @@ function readStdin() {
 }
 
 function writeStdout(text) {
-  GLib.file_set_contents('/dev/stdout', text)
+  // g_file_set_contents() writes a sibling temp file and renames it, which
+  // cannot work when stdout is a pipe (Neovim reads this over a pipe) - it
+  // fails with "Failed to create file /dev/stdout.XXXXXX: Permission denied".
+  // Write straight to fd 1 instead.
+  const stream = Gio.UnixOutputStream.new(1, false)
+  stream.write_all(new TextEncoder().encode(text), null)
+  stream.flush(null)
 }
 
 function keepClipboardOwnerAlive() {

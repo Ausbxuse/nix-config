@@ -615,6 +615,172 @@ codex_state_from_pane() {
   esac
 }
 
+claude_projects_dir() {
+  printf '%s\n' "${CLAUDE_PROJECTS_DIR:-$home_dir/.claude/projects}"
+}
+
+# Claude Code appends to its transcript and closes it, so the fd scan used for
+# codex finds nothing. Map pane -> cwd -> ~/.claude/projects/<cwd with / as ->
+# instead, then take the newest transcript and confirm its cwd matches.
+#
+# Limitation: two Claude panes sharing one cwd resolve to the same transcript,
+# so both windows report the newer one's state. The pane capture below still
+# takes precedence for waiting/running, which is where it matters.
+claude_session_for_pane() {
+  local pane="$1" path slug dir file best="" best_mtime=0 mtime cwd
+
+  path="$("$tmux_bin" display -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)"
+  [[ -n "$path" ]] || return 0
+
+  slug="${path//\//-}"
+  dir="$(claude_projects_dir)/$slug"
+  [[ -d "$dir" ]] || return 0
+
+  for file in "$dir"/*.jsonl; do
+    [[ -f "$file" ]] || continue
+    mtime="$(stat -c %Y "$file" 2>/dev/null || printf '0')"
+    if ((mtime >= best_mtime)); then
+      best="$file"
+      best_mtime="$mtime"
+    fi
+  done
+  [[ -n "$best" ]] || return 0
+
+  cwd="$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$best" 2>/dev/null | head -n 1 || true)"
+  [[ -z "$cwd" || "$cwd" == "$path" ]] || return 0
+
+  printf '%s\n' "$best"
+}
+
+# Turn boundaries live in the transcript; approval prompts do not, so waiting is
+# left to claude_state_from_pane.
+claude_state_from_session() {
+  local file="$1" state="" summary="" updated="" line ts tail_lines
+
+  [[ -n "$file" && -f "$file" ]] || return 0
+  tail_lines="${WORKBENCH_CLAUDE_TAIL_LINES:-400}"
+  [[ "$tail_lines" =~ ^[0-9]+$ && "$tail_lines" -gt 0 ]] || tail_lines=400
+
+  while IFS= read -r line; do
+    case "$line" in
+      *'"type":"assistant"'*)
+        case "$line" in
+          *'"stop_reason":"end_turn"'*)
+            state=done
+            summary="needs review"
+            ;;
+          *)
+            state=running
+            summary=working
+            ;;
+        esac
+        ;;
+      *'"type":"user"'*)
+        state=running
+        summary=working
+        ;;
+      *)
+        continue
+        ;;
+    esac
+
+    ts="$(printf '%s' "$line" | sed -n 's/.*"timestamp":"\([^"]*\)".*/\1/p')"
+    if [[ -n "$ts" ]]; then
+      updated="$(date -d "$ts" +%s 2>/dev/null || true)"
+    fi
+    break
+  done < <(
+    if command -v tac >/dev/null 2>&1; then
+      tail -n "$tail_lines" "$file" 2>/dev/null | tac 2>/dev/null || true
+    else
+      tail -n "$tail_lines" "$file" 2>/dev/null | sed '1!G;h;$!d' || true
+    fi
+  )
+
+  [[ -n "$state" ]] || return 0
+  printf '%s\t%s\t%s\n' "$state" "$summary" "${updated:-$(now_epoch)}"
+}
+
+# Markers verified against claude-code 2.1.x by capturing live panes: the
+# working footer always carries an elapsed/token readout ("... (3m 6s . 4.7k
+# tokens)"). This build has no "esc to interrupt" string.
+#
+# Idle is matched on the input prompt glyph, not on a footer hint: the hint text
+# rotates ("? for shortcuts", "gh auth login for PR status", "<- for agents"),
+# so no single hint is dependable. The prompt renders while working too, hence
+# the ordering below - waiting, then running, then idle.
+claude_state_from_pane() {
+  local pane="$1" capture lowered updated
+
+  [[ -n "$pane" ]] || return 0
+  capture="$("$tmux_bin" capture-pane -pJ -S -40 -t "$pane" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 32 || true)"
+  [[ -n "$capture" ]] || return 0
+
+  updated="$(now_epoch)"
+  lowered="${capture,,}"
+  case "$lowered" in
+    *"do you want to proceed?"* | *"do you want to make this edit"* | *"do you want to create"* | *"yes, and don't ask again"* | *"no, and tell claude"*)
+      printf 'waiting\tneeds approval\t%s\n' "$updated"
+      ;;
+    *"tokens)"*)
+      printf 'running\tworking\t%s\n' "$updated"
+      ;;
+    *"❯"* | *"? for shortcuts"*)
+      printf 'idle\tready\t%s\n' "$updated"
+      ;;
+  esac
+}
+
+agent_kind_for_pane() {
+  local pane="$1" command
+
+  command="$("$tmux_bin" display -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
+  case "$command" in
+    claude | claude-raw | .claude-unwrapped) printf 'claude\n' ;;
+    codex | codex-raw) printf 'codex\n' ;;
+    *)
+      # Shelling out from the agent pane changes pane_current_command, so fall
+      # back to transcript resolution. Codex is probed first: it holds an open
+      # fd, which proves codex is live in this pane, whereas a Claude
+      # transcript only proves Claude ran in this directory at some point.
+      if [[ -n "$(codex_session_for_pane "$pane" || true)" ]]; then
+        printf 'codex\n'
+      elif [[ -n "$(claude_session_for_pane "$pane" || true)" ]]; then
+        printf 'claude\n'
+      else
+        printf 'codex\n'
+      fi
+      ;;
+  esac
+}
+
+agent_session_for_pane() {
+  local pane="$1"
+
+  case "$(agent_kind_for_pane "$pane")" in
+    claude) claude_session_for_pane "$pane" ;;
+    *) codex_session_for_pane "$pane" ;;
+  esac
+}
+
+agent_state_from_session() {
+  local file="$1"
+
+  case "$file" in
+    *"/.claude/projects/"*) claude_state_from_session "$file" ;;
+    *) codex_state_from_session "$file" ;;
+  esac
+}
+
+agent_state_from_pane() {
+  local pane="$1"
+
+  case "$(agent_kind_for_pane "$pane")" in
+    claude) claude_state_from_pane "$pane" ;;
+    *) codex_state_from_pane "$pane" ;;
+  esac
+}
+
 sync_agent_states() {
   local session="${1:-}" stamp now last throttle window pane file state summary updated
   local current_state current_summary current_updated current_scan rescan_after needs_scan changed=0
@@ -645,11 +811,12 @@ sync_agent_states() {
       needs_scan=1
     fi
     if ((needs_scan)); then
-      file="$(codex_session_for_pane "$pane" || true)"
+      file="$(agent_session_for_pane "$pane" || true)"
       [[ -n "$file" ]] && set_window_option "$window" @agent-session-scan "$((now / 1000))"
     fi
     if [[ -z "$file" ]]; then
-      IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
+      state=""; summary=""; updated=""
+      IFS=$'\t' read -r state summary updated < <(agent_state_from_pane "$pane") || true
       if [[ -n "$state" && "$state" != "$current_state" ]]; then
         if [[ "$state" == waiting || "$current_state" == running || "$current_state" == done || "$current_state" == idle || -z "$current_state" || "$state" == running && "$current_state" == waiting ]]; then
           set_agent_state_options "$window" "$state" "$summary" "$updated"
@@ -661,7 +828,8 @@ sync_agent_states() {
 
     file_sig="$(stat -c '%Y:%s' "$file" 2>/dev/null || true)"
     if [[ -n "$file_sig" && "$file_sig" == "$current_sig" && -n "$current_state" && -n "$current_updated" ]]; then
-      IFS=$'\t' read -r state summary updated < <(codex_state_from_pane "$pane")
+      state=""; summary=""; updated=""
+      IFS=$'\t' read -r state summary updated < <(agent_state_from_pane "$pane") || true
       if [[ -n "$state" && "$state" != "$current_state" ]] &&
         {
           [[ "$state" == waiting ]] ||
@@ -674,9 +842,11 @@ sync_agent_states() {
       continue
     fi
 
-    IFS=$'\t' read -r state summary updated < <(codex_state_from_session "$file")
+    state=""; summary=""; updated=""
+    IFS=$'\t' read -r state summary updated < <(agent_state_from_session "$file") || true
     [[ -n "$state" ]] || continue
-    IFS=$'\t' read -r pane_state pane_summary pane_updated < <(codex_state_from_pane "$pane")
+    pane_state=""; pane_summary=""; pane_updated=""
+    IFS=$'\t' read -r pane_state pane_summary pane_updated < <(agent_state_from_pane "$pane") || true
     if [[ "$pane_state" == waiting ]] ||
       [[ "$pane_state" == running && "$state" =~ ^(done|idle|ready)$ ]]; then
       state="$pane_state"
@@ -978,7 +1148,7 @@ pane_matches_workbench_role() {
 
   case "$role" in
     agent)
-      [[ "$command" == codex || "$command" == codex-raw || "$pane_role" == agent ]]
+      [[ "$command" == codex || "$command" == codex-raw || "$command" == claude || "$command" == claude-raw || "$pane_role" == agent ]]
       ;;
     *)
       return 1

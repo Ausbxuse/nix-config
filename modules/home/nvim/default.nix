@@ -12,6 +12,10 @@
     nativeBuildInputs = [
       pkgs.makeWrapper
       pkgs.wrapGAppsHook3
+      # Without this, its setup hook never collects typelibs from buildInputs,
+      # so wrapGAppsHook3 has no GI_TYPELIB_PATH to inject and the script dies
+      # with "Typelib file for namespace 'Gdk', version '3.0' not found".
+      pkgs.gobject-introspection
     ];
     buildInputs = [
       pkgs.gjs

@@ -33,6 +33,8 @@ local function gnome_copy(primary)
   end
 end
 
+local gnome_paste_warned = false
+
 local function gnome_paste(primary)
   return function()
     local cmd = { 'nvim-gnome-clipboard', 'paste' }
@@ -42,10 +44,23 @@ local function gnome_paste(primary)
 
     local result = vim.system(cmd, { text = true }):wait()
     if result.code ~= 0 or result.stdout == nil then
+      -- No wl-paste fallback on purpose: wl-clipboard is what triggers the
+      -- Mutter permission popups this helper exists to avoid. Surface the
+      -- failure once instead, so a broken helper is never again a silent `p`
+      -- that pastes nothing.
+      if not gnome_paste_warned then
+        gnome_paste_warned = true
+        vim.notify(
+          'nvim-gnome-clipboard paste failed: ' .. vim.trim(result.stderr or '(no stderr)'),
+          vim.log.levels.ERROR
+        )
+      end
       return {}
     end
 
-    return vim.split(result.stdout, '\n', { plain = true })
+    -- Match wl-paste --no-newline: strip one trailing newline so the same
+    -- clipboard does not paste an extra blank line through this provider.
+    return vim.split((result.stdout:gsub('\n$', '')), '\n', { plain = true })
   end
 end
 
@@ -114,6 +129,35 @@ local function osc52_clipboard(name)
   }
 end
 
+local function tmux_clipboard()
+  local paste_plus = osc52_paste_from_cache '+'
+  local paste_star = osc52_paste_from_cache '*'
+
+  -- OSC 52 is write-only from Neovim's perspective.  Use the local desktop
+  -- clipboard for reads when Neovim is running inside tmux, while retaining
+  -- OSC 52 for writes so tmux can forward yanks to the terminal client.
+  if current_desktop:match 'GNOME' and vim.fn.executable 'nvim-gnome-clipboard' == 1 then
+    paste_plus = gnome_paste(false)
+    paste_star = gnome_paste(true)
+  elseif vim.fn.executable 'wl-paste' == 1 then
+    paste_plus = wl_paste(false)
+    paste_star = wl_paste(true)
+  end
+
+  return {
+    name = 'tmux-osc52-desktop-paste',
+    copy = {
+      ['+'] = osc52_copy_with_cache '+',
+      ['*'] = osc52_copy_with_cache '*',
+    },
+    paste = {
+      ['+'] = paste_plus,
+      ['*'] = paste_star,
+    },
+    cache_enabled = 0,
+  }
+end
+
 vim.api.nvim_create_autocmd('VimLeavePre', {
   callback = function()
     stop_gnome_clipboard_job '+'
@@ -126,8 +170,9 @@ vim.g.maplocalleader = ' '
 
 if vim.env.TMUX and vim.env.TMUX ~= '' then
   -- Send OSC 52 from the pane so tmux forwards the yank to every client
-  -- displaying it. The tmux clipboard provider guesses a single client.
-  vim.g.clipboard = osc52_clipboard 'tmux-osc52-cache'
+  -- displaying it. Paste through the local desktop clipboard because OSC 52
+  -- cannot read the system clipboard back into Neovim.
+  vim.g.clipboard = tmux_clipboard()
 elseif current_desktop:match 'GNOME' then
   vim.g.clipboard = {
     name = 'gnome-gtk',

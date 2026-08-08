@@ -7,6 +7,7 @@
   imports = [
     inputs.nix-index-database.homeModules.default
     ../../home/env
+    ../../home/claude.nix
     ../../home/codex.nix
     ../../home/zsh
     ../../home/nvim
