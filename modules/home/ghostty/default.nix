@@ -108,8 +108,7 @@ in {
         theme = "dark:snappy,light:snappy_light";
         # custom-shader = "shaders/cursor_warp.glsl";
 
-        font-family = "JetBrainsMono NF";
-        font-family-italic = "Operator Mono Book";
+        font-family = "Maple Mono NF";
         font-size = lib.mkDefault 12;
         font-thicken = true;
         font-feature = [
