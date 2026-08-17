@@ -112,8 +112,8 @@ in {
         font-size = lib.mkDefault 12;
         font-thicken = true;
         font-feature = [
-          "+ss01"
-          "+ss02"
+          "+cv01"
+          "+cv02"
           "+zero"
         ];
 
