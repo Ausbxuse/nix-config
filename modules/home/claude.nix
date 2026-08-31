@@ -153,6 +153,15 @@ in {
     force = true;
   };
 
+  # Global (user-level) instructions, applied to every project. The symlink is
+  # read-only, so Claude's in-app memory edits (the # shortcut, /memory) fail
+  # against user memory once this is deployed — deliberate: edit
+  # claude-global.md here and switch instead, so every machine stays in sync.
+  home.file.".claude/CLAUDE.md" = {
+    source = ./claude-global.md;
+    force = true;
+  };
+
   # Status line showing the 5h and weekly usage limits. Wired up by hand in
   # ~/.claude/settings.json ("statusLine".command -> this path) rather than
   # here: Claude Code writes settings.json itself (/config, model changes), so a
@@ -162,5 +171,9 @@ in {
     # initialisation and env-var handling, cutting ~4.5ms off a ~19ms render.
     text = "#!${pkgs.python3}/bin/python3 -SE\n" + builtins.readFile ./claude-statusline.py;
     executable = true;
+    # The live path has ended up a plain file before (hand-deployed edits);
+    # let activation replace it rather than abort with "existing file is in
+    # the way".
+    force = true;
   };
 }

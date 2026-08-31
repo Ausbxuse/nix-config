@@ -719,7 +719,7 @@ claude_state_from_pane() {
   updated="$(now_epoch)"
   lowered="${capture,,}"
   case "$lowered" in
-    *"do you want to proceed?"* | *"do you want to make this edit"* | *"do you want to create"* | *"yes, and don't ask again"* | *"no, and tell claude"*)
+    *"do you want"* | *"don't ask again"* | *"no, and tell claude"*)
       printf 'waiting\tneeds approval\t%s\n' "$updated"
       ;;
     *"tokens)"*)
@@ -784,7 +784,7 @@ agent_state_from_pane() {
 sync_agent_states() {
   local session="${1:-}" stamp now last throttle window pane file state summary updated
   local current_state current_summary current_updated current_scan rescan_after needs_scan changed=0
-  local file_sig current_sig pane_state pane_summary pane_updated
+  local file_sig current_sig pane_state pane_summary pane_updated hook_pid
 
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
   [[ -n "$session" ]] || return 0
@@ -802,6 +802,28 @@ sync_agent_states() {
   while IFS=$'\t' read -r window pane current_state current_summary current_updated file current_scan current_sig; do
     [[ -n "$window" && -n "$pane" ]] || continue
     pane_exists "$pane" || continue
+
+    # Hook-managed windows: claude-notify.sh pushes exact states from Claude
+    # Code's own lifecycle hooks, so pane/transcript scraping would only fight
+    # it. Scrape just enough to catch an interrupt (esc mid-turn emits no hook
+    # event): a bare prompt while hooks say running/waiting means the turn was
+    # cut short. A dead owner pid means claude exited without SessionEnd; drop
+    # the marker and fall through to normal scraping.
+    hook_pid="$(window_option "$window" @agent-hook-pid)"
+    if [[ -n "$hook_pid" ]]; then
+      if [[ -d "/proc/$hook_pid" ]]; then
+        if [[ "$current_state" == running || "$current_state" == waiting ]]; then
+          pane_state=""; pane_summary=""; pane_updated=""
+          IFS=$'\t' read -r pane_state pane_summary pane_updated < <(claude_state_from_pane "$pane") || true
+          if [[ "$pane_state" == idle ]]; then
+            set_agent_state_options "$window" idle interrupted "$pane_updated"
+            changed=1
+          fi
+        fi
+        continue
+      fi
+      unset_window_option "$window" @agent-hook-pid
+    fi
 
     rescan_after="${WORKBENCH_SESSION_RESCAN_SECS:-3}"
     needs_scan=0

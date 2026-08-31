@@ -1,11 +1,83 @@
 {
+  config,
   lib,
   pkgs,
   ...
-}: {
+}: let
+  # Registers claude-notify.sh for the lifecycle hooks it handles, merging
+  # into ~/.claude/settings.json without disturbing anything else there (the
+  # file stays writable: Claude Code edits it itself, so no home.file link —
+  # same reasoning as codex.nix's configureCodexNotify).
+  configureClaudeHooks =
+    pkgs.writers.writePython3 "configure-claude-hooks" {} ''
+      import json
+      import os
+      import sys
+
+      path = sys.argv[1]
+      cmd = sys.argv[2]
+
+      # async on PreToolUse so state pushes never add latency to tool calls;
+      # the rest fire at most once per turn and stay synchronous so their
+      # ordering is guaranteed.
+      events = {
+          "SessionStart": {},
+          "UserPromptSubmit": {},
+          "PreToolUse": {"async": True},
+          "Notification": {},
+          "Stop": {},
+          "StopFailure": {},
+          "SessionEnd": {},
+      }
+
+      try:
+          with open(path) as fh:
+              settings = json.load(fh)
+      except FileNotFoundError:
+          settings = {}
+      if not isinstance(settings, dict):
+          raise SystemExit(path + " is not a JSON object; refusing")
+
+      hooks = settings.setdefault("hooks", {})
+      for event, extra in events.items():
+          groups = hooks.get(event)
+          if not isinstance(groups, list):
+              groups = []
+          # Strip any previous registration of this script, then re-add
+          # canonically, so reruns and option changes stay idempotent.
+          for group in groups:
+              if isinstance(group, dict) \
+                      and isinstance(group.get("hooks"), list):
+                  group["hooks"] = [
+                      h for h in group["hooks"]
+                      if not (isinstance(h, dict)
+                              and cmd in str(h.get("command", "")))
+                  ]
+          groups = [
+              g for g in groups
+              if not (isinstance(g, dict) and g.get("hooks") == [])
+          ]
+          entry = {"type": "command", "command": cmd}
+          entry.update(extra)
+          groups.append({"hooks": [entry]})
+          hooks[event] = groups
+
+      tmp = path + ".tmp"
+      with open(tmp, "w") as fh:
+          json.dump(settings, fh, indent=2)
+          fh.write("\n")
+      os.replace(tmp, path)
+    '';
+in {
   programs.tmux = {
     enable = true;
   };
+
+  home.activation.configureClaudeHooks = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    ${configureClaudeHooks} \
+      "${config.home.homeDirectory}/.claude/settings.json" \
+      "${config.home.homeDirectory}/.local/bin/tmux/claude-notify.sh"
+  '';
 
   home.packages = with pkgs; [
     lm_sensors
@@ -34,6 +106,10 @@
   xdg.configFile."tmux/theme-light.conf".source = ./theme-light.conf;
   home.file.".local/bin/tmux/workbench.sh" = {
     source = ./workbench.sh;
+    executable = true;
+  };
+  home.file.".local/bin/tmux/claude-notify.sh" = {
+    source = ./claude-notify.sh;
     executable = true;
   };
   home.file.".local/bin/tmux/windowizer.sh" = {

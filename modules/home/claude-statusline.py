@@ -3,13 +3,25 @@
 Claude Code passes a JSON payload on stdin. It carries rate_limits only after
 the session has made at least one API request (the numbers come from
 anthropic-ratelimit-unified-* response headers), so a freshly started session
-has none. Fall back to the cachedUsageUtilization block in ~/.claude.json,
-which Claude refreshes in the background, so the line is never blank.
+has none — and it never carries the per-model weekly cap (weekly_scoped) at
+all, only five_hour and seven_day (verified on 2.1.251 by logging a payload).
 
-The two payloads disagree on shape, and both are handled. Verified by logging a
+Claude Code's own fallback, cachedUsageUtilization in ~/.claude.json, only
+refreshes on /usage and sporadic background polls (observed anywhere from ~1
+minute to ~3 hours old), so the scoped segment lagged. The statusline therefore
+keeps its own cache: when the freshest cache exceeds FETCH_TTL, a render
+spawns a detached re-exec of this script with --fetch, which reads the OAuth
+access token from ~/.claude/.credentials.json, queries the same
+api.anthropic.com endpoint /usage uses (the token goes nowhere else), and
+atomically writes ~/.cache/claude-statusline-usage.json. Renders never block
+on the network.
+
+The payloads disagree on shape, and all are handled. Verified by logging a
 real stdin payload; do not infer these from the bundle:
   stdin  five_hour = {used_percentage: 77, resets_at: 1785966000}   epoch seconds
   cache  five_hour = {utilization: 45, resets_at: "2026-08-04T21:00:00+00:00"}
+Our own cache stores the endpoint response verbatim, which matches the cache
+shape (it is what Claude Code stores under cachedUsageUtilization.utilization).
 """
 
 import json
@@ -19,6 +31,14 @@ import time
 
 RESET = "\x1b[0m"
 DIM = "\x1b[2m"
+
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CACHE_DIR = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+CACHE_PATH = os.path.join(CACHE_DIR, "claude-statusline-usage.json")
+ATTEMPT_PATH = CACHE_PATH + ".attempt"
+FETCH_TTL = 60.0  # refresh cadence; Claude Code polls the same endpoint itself
+FETCH_RETRY = 30.0  # min gap between attempts, so a failing fetch can't storm
+STALE_AFTER = 300.0  # older than this renders with the ~ marker
 
 # Rising effort reads as rising spend, so the ramp matches the limit colors.
 EFFORT_COLORS = {
@@ -90,24 +110,147 @@ def limits_from_payload(payload):
     return limits if isinstance(limits, dict) else {}
 
 
-def load_cache():
-    """Return (utilization, age_seconds). Age is None when unknown.
+def utilization_block(container):
+    """(block, age_seconds) from a {fetchedAtMs, utilization} container."""
+    block = container.get("utilization")
+    if not isinstance(block, dict):
+        return {}, None
+    fetched = container.get("fetchedAtMs")
+    age = time.time() - fetched / 1000.0 if isinstance(fetched, (int, float)) else None
+    return block, age
 
-    Measured in practice at anything from ~1 minute to ~3 hours old, so anything
-    sourced from here is flagged stale rather than shown as live.
-    """
+
+def load_cache():
+    """Claude Code's own cache in ~/.claude.json. Age is None when unknown."""
     path = os.path.join(os.path.expanduser("~"), ".claude.json")
     try:
         with open(path) as handle:
             cached = json.load(handle).get("cachedUsageUtilization") or {}
     except Exception:
         return {}, None
-    block = cached.get("utilization")
-    if not isinstance(block, dict):
+    return utilization_block(cached)
+
+
+def load_own_cache():
+    """The cache our own --fetch writes."""
+    try:
+        with open(CACHE_PATH) as handle:
+            cached = json.load(handle)
+    except Exception:
         return {}, None
-    fetched = cached.get("fetchedAtMs")
-    age = time.time() - fetched / 1000.0 if isinstance(fetched, (int, float)) else None
-    return block, age
+    if not isinstance(cached, dict):
+        return {}, None
+    return utilization_block(cached)
+
+
+def fresher(a, b):
+    """Pick the younger of two (block, age) pairs; unknown age counts as old."""
+    inf = float("inf")
+    if not b[0]:
+        return a
+    if not a[0]:
+        return b
+    return a if (a[1] if a[1] is not None else inf) <= (b[1] if b[1] is not None else inf) else b
+
+
+def spawn_fetch(age):
+    """Kick off a detached --fetch when every cache is older than FETCH_TTL.
+
+    The attempt file's mtime throttles retries across all concurrently
+    rendering sessions; it is touched before spawning so a failing fetch can
+    retry at most every FETCH_RETRY seconds.
+    """
+    if age is not None and age <= FETCH_TTL:
+        return
+    try:
+        if time.time() - os.path.getmtime(ATTEMPT_PATH) < FETCH_RETRY:
+            return
+    except OSError:
+        pass
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(ATTEMPT_PATH, "w"):
+            pass
+        import subprocess
+
+        subprocess.Popen(
+            [os.path.abspath(__file__), "--fetch"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass  # rendering must never fail over the refresh
+
+
+def fetch_usage():
+    """Refresh CACHE_PATH from the endpoint /usage reads. Runs detached.
+
+    Any failure exits silently and leaves the previous cache in place; the
+    attempt file already gates the retry cadence.
+    """
+    creds_path = os.path.join(os.path.expanduser("~"), ".claude", ".credentials.json")
+    try:
+        with open(creds_path) as handle:
+            oauth = json.load(handle).get("claudeAiOauth") or {}
+    except Exception:
+        return
+    token = oauth.get("accessToken")
+    expires = oauth.get("expiresAt")
+    if not isinstance(token, str) or not token:
+        return
+    # An expired access token is Claude Code's to refresh, not ours.
+    if isinstance(expires, (int, float)) and expires / 1000.0 <= time.time():
+        return
+
+    import ssl
+    import urllib.request
+
+    context = ssl.create_default_context()
+    if context.cert_store_stats().get("x509_ca", 0) == 0:
+        # python3 -E hides no cert env vars (it only drops PYTHON*), but a nix
+        # store python may still find no default bundle; fall back to the
+        # system one.
+        for cafile in ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-bundle.crt"):
+            if os.path.exists(cafile):
+                try:
+                    context.load_verify_locations(cafile)
+                except Exception:
+                    continue
+                break
+
+    request = urllib.request.Request(
+        USAGE_URL,
+        headers={
+            "Authorization": "Bearer " + token,
+            "anthropic-beta": "oauth-2025-04-20",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10, context=context) as response:
+            data = json.load(response)
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    # The response may or may not wrap the block in "utilization"; accept both.
+    block = data.get("utilization") if isinstance(data.get("utilization"), dict) else data
+    if percent_of(block.get("five_hour")) is None and not isinstance(block.get("limits"), list):
+        return  # unexpected shape; keep whatever cache we had
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    tmp = CACHE_PATH + "." + str(os.getpid())
+    payload = {"fetchedAtMs": int(time.time() * 1000), "utilization": block}
+    try:
+        with open(tmp, "w") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, CACHE_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def scoped_limit(cache_block):
@@ -211,7 +354,7 @@ def limit_segment(label, entry, stale=False):
     segment = color("2", label + " ") + bar(pct) + " "
     segment += color(severity_code(pct), str(int(round(pct))) + "%")
     if stale:
-        segment += color("2", "~")  # value is from the cache, may lag by hours
+        segment += color("2", "~")  # value is from a cache that may be lagging
     left = time_left(entry.get("resets_at"))
     if left:
         segment += color("2", " " + left)
@@ -233,8 +376,9 @@ def workspace_segment(payload):
 def main():
     payload = read_stdin()
 
-    cache_block, cache_age = load_cache()
-    cache_stale = cache_age is None or cache_age > 300
+    cache_block, cache_age = fresher(load_own_cache(), load_cache())
+    spawn_fetch(cache_age)
+    cache_stale = cache_age is None or cache_age > STALE_AFTER
 
     # Fall back on a missing percentage, not just a missing key: the payload can
     # carry a five_hour object whose shape we fail to read, and treating that as
@@ -279,4 +423,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--fetch" in sys.argv:
+        fetch_usage()
+    else:
+        main()
