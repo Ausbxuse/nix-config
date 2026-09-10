@@ -3,3 +3,5 @@ result
 .direnv/*
 .codex-local/
 modules/home/tmux/dashboard/target/
+result-iso
+__pycache__/
