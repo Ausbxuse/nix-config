@@ -63,13 +63,17 @@
     };
 
     nixos = {
-      enable = false;
+      enable = true;
+      profile = "portable-gnome";
     };
 
     install = {
-      layout = "";
-      disk = "";
-      swapSize = "";
+      layout = "luks-btrfs";
+      disk = "/dev/nvme0n1";
+      swapSize = "15G";
+      canTouchEfiVariables = false;
+      efiInstallAsRemovable = true;
+      useOSProber = false;
     };
   };
 }

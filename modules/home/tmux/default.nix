@@ -17,6 +17,13 @@
       path = sys.argv[1]
       cmd = sys.argv[2]
 
+      # A fresh Home Manager account has no ~/.claude directory yet.  This
+      # activation runs after writeBoundary, but the managed Claude files are
+      # linked later, so make the writable settings parent explicitly.
+      parent = os.path.dirname(path)
+      if parent:
+          os.makedirs(parent, exist_ok=True)
+
       # async on PreToolUse so state pushes never add latency to tool calls;
       # the rest fire at most once per turn and stay synchronous so their
       # ordering is guaranteed.

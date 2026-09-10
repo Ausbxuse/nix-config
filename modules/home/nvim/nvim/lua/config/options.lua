@@ -1,5 +1,4 @@
 local opt = vim.opt
-local home = vim.fn.expand '$HOME'
 local osc52 = require 'vim.ui.clipboard.osc52'
 local term_program = vim.env.TERM_PROGRAM or ''
 local current_desktop = vim.env.XDG_CURRENT_DESKTOP or ''
@@ -207,7 +206,9 @@ end
 local default_options = {
   clipboard = 'unnamedplus',
   statusline = ' %f %m %r %=%-13a %k %S %l:%L ',
-  spellfile = home .. '/.config/nvim/spell/en.utf-8.add',
+  -- The configuration is immutable when deployed by Nix.  Learned spelling
+  -- words are mutable state and therefore belong under XDG_STATE_HOME.
+  spellfile = vim.fs.joinpath(vim.fn.stdpath 'state', 'spell', 'en.utf-8.add'),
   number = true,
   relativenumber = true,
   breakindent = true,
@@ -232,7 +233,7 @@ local default_options = {
   showtabline = 0, -- always show tabs
   swapfile = false, -- creates a swapfile
   termguicolors = true, -- set term gui colors (most terminals support this)
-  undodir = home .. '/.cache/nvim/undo', -- set an undo directory
+  undodir = vim.fs.joinpath(vim.fn.stdpath 'cache', 'undo'), -- set an undo directory
   writebackup = false, -- if a file is being edited by another program (or was written to file while editing with another program), it is not allowed to be edited
   expandtab = true, -- convert tabs to spaces
   shiftwidth = 2, -- the number of spaces inserted for each indentation

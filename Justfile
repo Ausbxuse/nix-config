@@ -68,9 +68,9 @@ nvidia-prime-bus-ids:
 	nix run .#nvidia-prime-bus-ids
 
 # Update specific input
-# usage: make upp i=home-manager
-upp:
-	nix flake lock --update-input $(i)
+# usage: just upp home-manager
+upp input:
+	nix flake lock --update-input {{input}}
 
 # Update the sadjow/codex-cli-nix input and activate the new Codex package.
 # Usage: just upgrade-codex [CONFIG]
@@ -121,5 +121,16 @@ backup-bundle:
 # Write the NixOS installer ISO to the USB installer partition.
 # Usage: just refresh-installer-usb /dev/sdX1
 refresh-installer-usb PARTITION:
-	nix build .#gnome-iso
-	sudo dd if=$(ls ./result/iso/*.iso) of={{PARTITION}} bs=64M status=progress oflag=sync
+	#!/usr/bin/env bash
+	set -euo pipefail
+	nix build .#images.x86_64-linux.gnome-iso
+	image="$(find -L ./result/iso -maxdepth 1 -type f -name '*.iso' -print -quit)"
+	[ -n "$image" ] || { printf 'installer ISO not found under ./result/iso\n' >&2; exit 1; }
+	image_bytes="$(stat -c %s "$image")"
+	partition_bytes="$(sudo blockdev --getsize64 {{PARTITION}})"
+	if (( image_bytes > partition_bytes )); then
+		printf 'ISO (%s bytes) does not fit on %s (%s bytes)\n' \
+			"$image_bytes" '{{PARTITION}}' "$partition_bytes" >&2
+		exit 1
+	fi
+	sudo dd if="$image" of={{PARTITION}} bs=64M status=progress oflag=sync

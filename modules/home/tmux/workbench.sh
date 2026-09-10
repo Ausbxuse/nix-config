@@ -225,6 +225,36 @@ sync_paired_terminal_state() {
   set_window_option "$term_window" @agent-updated "${updated:-$(now_epoch)}"
 }
 
+sync_paired_window_name() {
+  local window="${1:-}" workbench_window term_window target_window source_name target_name
+
+  [[ -n "$window" ]] || return 0
+  window_exists "$window" || return 0
+  source_name="$("$tmux_bin" display -p -t "$window" '#{window_name}' 2>/dev/null || true)"
+  [[ -n "$source_name" ]] || return 0
+
+  if is_workbench_window "$window"; then
+    workbench_window="$window"
+    set_window_option "$workbench_window" @task-name "$source_name"
+    term_window="$(window_option "$workbench_window" @term-window)"
+    is_paired_terminal_window_for "$term_window" "$workbench_window" || return 0
+    target_window="$term_window"
+  elif is_paired_terminal_window "$window"; then
+    term_window="$window"
+    workbench_window="$(window_option "$term_window" @workbench-window)"
+    is_workbench_window "$workbench_window" || return 0
+    [[ "$(window_option "$workbench_window" @term-window)" == "$term_window" ]] || return 0
+    set_window_option "$workbench_window" @task-name "$source_name"
+    target_window="$workbench_window"
+  else
+    return 0
+  fi
+
+  target_name="$("$tmux_bin" display -p -t "$target_window" '#{window_name}' 2>/dev/null || true)"
+  [[ "$target_name" == "$source_name" ]] ||
+    "$tmux_bin" rename-window -t "$target_window" "$source_name" 2>/dev/null || true
+}
+
 set_agent_state_options() {
   local window="$1" state="$2" summary="$3" updated="$4"
 
@@ -1380,6 +1410,7 @@ switch_to_paired_terminal() {
   heal_workbench_window "$window"
   term_window="$(ensure_paired_terminal_window "$window")"
   [[ -n "$term_window" ]] || return 0
+  sync_paired_window_name "$window"
   term_session="$(window_option "$window" @term-session)"
   "$tmux_bin" switch-client -t "$term_session" 2>/dev/null || true
   "$tmux_bin" select-window -t "$term_window" 2>/dev/null || true
@@ -1390,6 +1421,7 @@ show_terminal() {
 
   window="$(current_window)"
   if is_workbench_window "$window"; then
+    sync_paired_window_name "$window"
     target="$(fast_paired_terminal_target "$window" || true)"
     if [[ -n "$target" ]]; then
       IFS='|' read -r term_session term_window <<<"$target"
@@ -1485,6 +1517,7 @@ select_primary() {
   fi
 
   if is_paired_terminal_window "$window"; then
+    sync_paired_window_name "$window"
     target="$(fast_workbench_target "$window" || true)"
     if [[ -z "$target" ]]; then
       workbench_window="$(window_option "$window" @workbench-window)"
@@ -1504,6 +1537,7 @@ pair_toggle() {
 
   window="$(current_window)"
   if is_workbench_window "$window"; then
+    sync_paired_window_name "$window"
     target="$(fast_paired_terminal_target "$window" || true)"
     if [[ -n "$target" ]]; then
       IFS='|' read -r term_session term_window <<<"$target"
@@ -1514,6 +1548,7 @@ pair_toggle() {
   fi
 
   if is_paired_terminal_window "$window"; then
+    sync_paired_window_name "$window"
     target="$(fast_workbench_target "$window" || true)"
     if [[ -n "$target" ]]; then
       IFS='|' read -r workbench_session workbench_window <<<"$target"
@@ -1941,6 +1976,11 @@ case "$cmd" in
     bump_event "${1:-$(current_session 2>/dev/null || true)}"
     "$tmux_bin" refresh-client -S 2>/dev/null || true
     ;;
+  window-renamed)
+    sync_paired_window_name "${1:-}"
+    [[ -z "${1:-}" ]] || bump_window_event "$1"
+    "$tmux_bin" refresh-client -S 2>/dev/null || true
+    ;;
   state)
     set_state "$@"
     ;;
@@ -1981,6 +2021,7 @@ commands:
   sync [SESSION]
   sync-all
   event [SESSION]
+  window-renamed WINDOW
   state STATE [summary]
   summary
   status-sync

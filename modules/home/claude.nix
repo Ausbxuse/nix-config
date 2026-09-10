@@ -1,4 +1,10 @@
-{pkgs, ...}: let
+{
+  inputs,
+  pkgs,
+  ...
+}: let
+  system = pkgs.stdenv.hostPlatform.system;
+  claudeCode = inputs.claude-code-nix.packages.${system}.default;
   json = pkgs.formats.json {};
 
   # Keys our tmux root table (modules/home/tmux) swallows before Claude Code
@@ -148,6 +154,8 @@
     ];
   };
 in {
+  home.packages = [claudeCode];
+
   home.file.".claude/keybindings.json" = {
     source = json.generate "claude-keybindings.json" keybindings;
     force = true;

@@ -3,6 +3,19 @@
   pkgs,
   const,
   hostDefs,
+  offlineInstallManifest ?
+    pkgs.writeText "offline-install-manifest.json" (builtins.toJSON {
+      schemaVersion = 1;
+      strict = false;
+      targets = {};
+    }),
+  # Keep the default template in a standalone store object.  A raw source path
+  # embedded by replaceStrings is not necessarily retained in a package's
+  # runtime closure (notably on the installer ISO).
+  installerConfigTemplate ? pkgs.writeText "nixos-installer.conf" (builtins.readFile ../isos/installer.conf),
+  # The ISO supplies its full declarative Home Manager Neovim wrapper here.
+  # Other consumers retain the small, offline-safe editor defined below.
+  installerEditor ? null,
 }: let
   repoSource = builtins.path {
     path = ../.;
@@ -11,6 +24,7 @@
   hostDefsFile = pkgs.writeText "host-defs.json" (builtins.toJSON hostDefs);
   shLib = builtins.readFile ../scripts/lib.sh;
 
+  herdr = pkgs.callPackage ./herdr.nix {};
   minecraft = pkgs.callPackage ./minecraft {};
 
   mkScriptApp = {
@@ -82,6 +96,7 @@
     runtimeInputs = with pkgs; [
       coreutils
       git
+      findutils
       gnugrep
       gnused
       gawk
@@ -92,12 +107,38 @@
       disko
       nixos-install-tools
       nix
-    ];
+      squashfsTools
+      xcp
+    ] ++ [installerPrefetch];
     replacements = {
       "@source_lib@" = shLib;
       "@repoSource@" = toString repoSource;
       "@hostDefsFile@" = toString hostDefsFile;
       "@username@" = const.username;
+      "@offlineInstallManifest@" = toString offlineInstallManifest;
+    };
+  };
+
+  installerPrefetch = pkgs.writeScriptBin "installer-prefetch" ''
+    #!${pkgs.python3}/bin/python3
+    ${builtins.readFile ../scripts/installer-prefetch.py}
+  '';
+
+  installProfile = mkScriptApp {
+    name = "install-profile";
+    src = ../scripts/install-profile.sh;
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.jq
+      install
+      selectedInstallerEditor
+      installerPrefetch
+    ];
+    replacements = {
+      "@source_lib@" = shLib;
+      "@installerConfigTemplate@" = toString installerConfigTemplate;
+      "@offlineInstallManifest@" = toString offlineInstallManifest;
+      "@installerEditor@" = "${selectedInstallerEditor}/bin/nvim";
     };
   };
 
@@ -224,19 +265,41 @@
   };
 
   nvim = let
-    nvimConfig = ../modules/home/nvim/nvim;
+    # Materialize the Neovim tree as a derivation output.  Embedding a path
+    # inside the flake source in Lua does not make that source path a runtime
+    # dependency of the generated init file.
+    nvimConfig = pkgs.runCommandLocal "nix-config-nvim" {} ''
+      mkdir -p "$out"
+      cp -R ${../modules/home/nvim/nvim}/. "$out/"
+    '';
+    installerInit = pkgs.writeText "nix-config-installer-init.lua" ''
+      -- Reuse the author's core editing experience without allowing vim.pack
+      -- to contact GitHub from offline installation media.
+      vim.opt.runtimepath:prepend('${nvimConfig}')
+      require 'config.options'
+      require 'config.keymaps'
+      require 'config.autocmds'
+      require 'config.merge_conflict'
+      vim.opt.clipboard = {}
+      vim.opt.foldmethod = 'manual'
+      vim.opt.undodir = vim.fn.stdpath('cache') .. '/undo'
+      vim.cmd 'syntax enable'
+      vim.g.nix_config_installer_init_loaded = true
+    '';
     deps = with pkgs; [nodejs tree-sitter fd ripgrep gcc git];
     depsPath = pkgs.lib.makeBinPath deps;
   in
     pkgs.writeShellScriptBin "nvim" ''
-      NVIM_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
-      if [ ! -e "$NVIM_DIR" ]; then
-        mkdir -p "$(dirname "$NVIM_DIR")"
-        ln -s ${nvimConfig} "$NVIM_DIR"
-      fi
       export PATH="${depsPath}:$PATH"
-      exec ${pkgs.neovim}/bin/nvim "$@"
+      INSTALLER_NVIM_CACHE="''${XDG_CACHE_HOME:-$HOME/.cache}/nvim"
+      INSTALLER_NVIM_STATE="''${XDG_STATE_HOME:-$HOME/.local/state}/nvim"
+      mkdir -p "$INSTALLER_NVIM_CACHE/undo" "$INSTALLER_NVIM_STATE/spell"
+      exec ${pkgs.neovim}/bin/nvim -u ${installerInit} "$@"
     '';
+  selectedInstallerEditor =
+    if installerEditor == null
+    then nvim
+    else installerEditor;
 in {
   minecraftClient = minecraft.mrpack;
   minecraftDeploy = minecraft.deploy;
@@ -246,5 +309,6 @@ in {
   "admit-host" = admitHost;
   "enroll" = enroll;
   "setup-recovery-usb" = setupRecoveryUsb;
-  inherit install nvidiaPrimeBusIds nvim;
+  "install-profile" = installProfile;
+  inherit herdr install nvidiaPrimeBusIds nvim;
 }

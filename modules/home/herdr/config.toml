@@ -1,0 +1,167 @@
+onboarding = false
+
+[theme]
+name = "catppuccin"
+auto_switch = true
+dark_name = "catppuccin"
+light_name = "catppuccin-latte"
+
+[terminal]
+shell_mode = "auto"
+new_cwd = "follow"
+
+[update]
+# Herdr is upgraded through this pinned Nix configuration.
+version_check = false
+manifest_check = true
+
+[keys]
+# Match the existing tmux leader.
+prefix = "ctrl+f"
+
+help = "prefix+?"
+settings = "prefix+s"
+detach = ["prefix+d", "prefix+q"]
+reload_config = "prefix+r"
+open_notification_target = "prefix+shift+o"
+
+new_workspace = ["prefix+enter", "alt+enter", "prefix+shift+n"]
+new_worktree = "prefix+shift+g"
+rename_workspace = "prefix+shift+w"
+close_workspace = "prefix+shift+d"
+workspace_picker = ["prefix+i", "alt+i", "prefix+w"]
+goto = "prefix+g"
+switch_workspace = "prefix+shift+1..9"
+
+next_agent = ["prefix+o", "alt+o"]
+focus_agent = "prefix+alt+1..9"
+
+new_tab = "prefix+c"
+rename_tab = "prefix+shift+t"
+previous_tab = ["prefix+p", "prefix+ctrl+p", "alt+p"]
+next_tab = ["prefix+n", "prefix+ctrl+n", "alt+n"]
+switch_tab = ["prefix+1..9", "alt+1..9"]
+close_tab = ["prefix+shift+x", "alt+shift+a"]
+
+rename_pane = "prefix+shift+p"
+edit_scrollback = ["prefix+e", "prefix+ctrl+y", "ctrl+alt+y"]
+copy_mode = "prefix+["
+focus_pane_left = ["prefix+h", "alt+h"]
+focus_pane_down = ["prefix+j", "alt+j"]
+focus_pane_up = ["prefix+k", "alt+k"]
+focus_pane_right = ["prefix+l", "alt+l"]
+swap_pane_left = ["prefix+shift+h", "alt+comma"]
+swap_pane_down = "prefix+shift+j"
+swap_pane_up = "prefix+shift+k"
+swap_pane_right = ["prefix+shift+l", "alt+period"]
+cycle_pane_next = "prefix+tab"
+cycle_pane_previous = "prefix+shift+tab"
+last_pane = ["ctrl+backslash", "alt+semicolon", "alt+quote"]
+split_vertical = ["prefix+space", "alt+space", "prefix+v", "prefix+percent"]
+split_horizontal = ["prefix+minus", "prefix+double_quote"]
+close_pane = ["prefix+a", "alt+a", "prefix+x", "alt+x"]
+zoom = ["prefix+z", "alt+f", "alt+g"]
+resize_mode = "prefix+shift+r"
+resize_pane_left = ["alt+shift+h", "ctrl+shift+h"]
+resize_pane_down = ["alt+shift+j", "ctrl+shift+j"]
+resize_pane_up = ["alt+shift+k", "ctrl+shift+k"]
+resize_pane_right = ["alt+shift+l", "ctrl+shift+l"]
+toggle_sidebar = "prefix+b"
+
+# Keep the existing qwerty tab jumps from tmux.
+[[keys.command]]
+key = "alt+q"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 1"
+description = "switch to tab 1"
+
+[[keys.command]]
+key = "alt+w"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 2"
+description = "switch to tab 2"
+
+[[keys.command]]
+key = "alt+e"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 3"
+description = "switch to tab 3"
+
+[[keys.command]]
+key = "alt+r"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 4"
+description = "switch to tab 4"
+
+[[keys.command]]
+key = "alt+t"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 5"
+description = "switch to tab 5"
+
+[[keys.command]]
+key = "ctrl+q"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 1"
+description = "switch to tab 1"
+
+[[keys.command]]
+key = "ctrl+w"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 2"
+description = "switch to tab 2"
+
+[[keys.command]]
+key = "ctrl+e"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 3"
+description = "switch to tab 3"
+
+[[keys.command]]
+key = "ctrl+r"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 4"
+description = "switch to tab 4"
+
+[[keys.command]]
+key = "ctrl+t"
+type = "shell"
+command = "~/.local/bin/herdr/focus-tab.sh 5"
+description = "switch to tab 5"
+
+[ui]
+agent_panel_sort = "priority"
+status_indicators = "symbols"
+show_agent_labels_on_pane_borders = true
+pane_borders = true
+pane_outer_borders = false
+pane_gaps = false
+pane_scrollbars = false
+tab_bar_position = "top"
+tab_bar_right = [
+  { type = "zoom" },
+  { type = "hostname" },
+  { type = "datetime", format = "%H:%M" },
+]
+tab_bar_right_separator = " · "
+window_title = "{hostname}: {workspace} · {tab}"
+
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", "agent", "state_text"],
+  ["workspace", "tab"],
+  ["terminal_title_stripped"],
+]
+
+[ui.toast]
+delivery = "terminal"
+delay_seconds = 1
+
+[ui.sound]
+enabled = true
+
+[session]
+resume_agents_on_restore = true
+
+[advanced]
+scrollback_limit_bytes = 30000000

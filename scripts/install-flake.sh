@@ -5,11 +5,14 @@ IFS=$'\n\t'
 readonly REPO_SOURCE='@repoSource@'
 readonly HOST_DEFS_FILE='@hostDefsFile@'
 readonly DEFAULT_USERNAME='@username@'
+readonly OFFLINE_INSTALL_MANIFEST='@offlineInstallManifest@'
 readonly SECRET_KEY_PATH='/tmp/secret.key'
 
 HOST=""
 SYSTEM=""
 DISK=""
+DISK_FROM_ARGS=0
+ASK_DISK=0
 USERNAME=""
 FULL_NAME=""
 EMAIL=""
@@ -23,19 +26,95 @@ SWAP_SIZE=""
 INSTALL_LAYOUT=""
 PLATFORM=""
 VISIBILITY=""
-COPY_REPO=""        # yes|no
+COPY_REPO="yes"     # yes|no; the installed host should be self-manageable
 CAPS_REMAP=""       # yes|no
 REPO_DEST=""
 KNOWN_HOST=0
 DRY_RUN=0
 PORTABLE=0
 SKIP_PARTITIONING=0
+OFFLINE_POLICY="auto" # auto|require|disable
+OFFLINE_INSTALL=0
+OFFLINE_TOPLEVEL=""
+OFFLINE_CLOSURE_INFO=""
+OFFLINE_DISKO_SCRIPT=""
+OFFLINE_DISK_ALIAS=""
+OFFLINE_DISK_ALIAS_CREATED=0
 WORKTREE=""
 declare -a INSTALL_ARTIFACTS=()
+
+INSTALL_STARTED_SECONDS=0
+PROFILE_PREPARE_SECONDS=0
+PROFILE_DISKO_SECONDS=0
+PROFILE_HARDWARE_SECONDS=0
+PROFILE_STORE_COPY_SECONDS=0
+PROFILE_STORE_REGISTER_SECONDS=0
+PROFILE_NIXOS_INSTALL_SECONDS=0
+PROFILE_FINISH_SECONDS=0
 
 @source_lib@
 
 script_banner() { banner "nixos installer" "partition, format, and install NixOS"; }
+
+format_duration() {
+  local total=${1:-0}
+  local hours=$((total / 3600))
+  local minutes=$(((total % 3600) / 60))
+  local seconds=$((total % 60))
+
+  if (( hours > 0 )); then
+    printf '%dh %02dm %02ds' "$hours" "$minutes" "$seconds"
+  elif (( minutes > 0 )); then
+    printf '%dm %02ds' "$minutes" "$seconds"
+  else
+    printf '%ds' "$seconds"
+  fi
+}
+
+show_install_timing() {
+  local total=$((SECONDS - INSTALL_STARTED_SECONDS))
+
+  section "installation time"
+  kv "prepare" "$(format_duration "$PROFILE_PREPARE_SECONDS")"
+  if [[ "$NIXOS_MODE" == "yes" ]]; then
+    if [[ $SKIP_PARTITIONING -eq 0 ]]; then
+      kv "disk + LUKS" "$(format_duration "$PROFILE_DISKO_SECONDS")"
+    fi
+    kv "hardware config" "$(format_duration "$PROFILE_HARDWARE_SECONDS")"
+    if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+      kv "store copy" "$(format_duration "$PROFILE_STORE_COPY_SECONDS")"
+      kv "store register" "$(format_duration "$PROFILE_STORE_REGISTER_SECONDS")"
+    fi
+    kv "nixos-install" "$(format_duration "$PROFILE_NIXOS_INSTALL_SECONDS")"
+  fi
+  kv "finish" "$(format_duration "$PROFILE_FINISH_SECONDS")"
+  kv "total" "${C_BOLD}$(format_duration "$total")${C_RESET}"
+}
+
+show_next_steps() {
+  section "next step"
+
+  if [[ "$NIXOS_MODE" == "yes" ]]; then
+    ok "installation completed successfully on ${DISK}"
+    info "1. Power off this live installer: sudo poweroff"
+    info "2. Remove/eject the installer USB or ISO."
+    info "3. Boot from ${DISK} and enter the LUKS passphrase."
+    if [[ "$HOST" == "razy" || "$HOST" == "spacy" ]]; then
+      info "4. After first boot, enroll ${HOST} to add private secrets and admin access."
+    fi
+    warn "Do not run the installer on ${DISK} again unless you intend to erase it."
+  else
+    ok "Home Manager activation completed successfully"
+    info "Open a new login session so shell and group changes are fully applied."
+  fi
+
+  # Desktop launchers otherwise close their terminal immediately, hiding the
+  # timing and safety reminder. Automated --yes installs remain non-blocking.
+  if [[ $ASSUME_YES -eq 0 && -r /dev/tty ]]; then
+    printf '  %sPress Enter after reading the next steps.%s ' "$C_BOLD" "$C_RESET" >/dev/tty
+    IFS= read -r _ </dev/tty || true
+  fi
+}
 
 bool_word() {
   if [[ "$1" == "yes" ]]; then
@@ -54,6 +133,11 @@ export NIX_CONFIG="${NIX_CONFIG:+$NIX_CONFIG
 readonly NIX_CMD=(nix --extra-experimental-features "nix-command flakes")
 
 cleanup() {
+  stop_installer_prefetch
+  if [[ $OFFLINE_DISK_ALIAS_CREATED -eq 1 && -L "$OFFLINE_DISK_ALIAS" ]]; then
+    sudo rm -f "$OFFLINE_DISK_ALIAS" 2>/dev/null || true
+  fi
+
   if [[ -f "$SECRET_KEY_PATH" ]]; then
     sudo rm -f "$SECRET_KEY_PATH" 2>/dev/null || true
   fi
@@ -197,13 +281,16 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --host)            HOST=${2:?missing value};            shift 2 ;;
-      --disk)            DISK=${2:?missing value};            shift 2 ;;
+      --disk)            DISK=${2:?missing value}; DISK_FROM_ARGS=1; ASK_DISK=0; shift 2 ;;
+      --ask-disk)        DISK=""; DISK_FROM_ARGS=0; ASK_DISK=1; shift ;;
       --system)          SYSTEM=${2:?missing value};          shift 2 ;;
       --username)        USERNAME=${2:?missing value};        shift 2 ;;
       --name)            FULL_NAME=${2:?missing value};       shift 2 ;;
       --email)           EMAIL=${2:?missing value};           shift 2 ;;
       --nixos)           NIXOS_MODE=yes;                      shift ;;
+      --no-nixos)        NIXOS_MODE=no;                       shift ;;
       --home)            HOME_MODE=yes;                       shift ;;
+      --no-home)         HOME_MODE=no;                        shift ;;
 
       --nixos-profile)   NIXOS_PROFILE=${2:?missing value};   shift 2 ;;
       --home-profile)    HOME_PROFILE=${2:?missing value};    shift 2 ;;
@@ -215,6 +302,8 @@ parse_args() {
       --repo-dest)       REPO_DEST=${2:?missing value};       shift 2 ;;
       --portable)        PORTABLE=1;                            shift ;;
       --skip-partitioning) SKIP_PARTITIONING=1;               shift ;;
+      --offline)          OFFLINE_POLICY=require;             shift ;;
+      --online)           OFFLINE_POLICY=disable;             shift ;;
       --dry-run)         DRY_RUN=1;                           shift ;;
       --no-color)        USE_COLOR=0; apply_colors;          shift ;;
       -y|--yes)          ASSUME_YES=1;                        shift ;;
@@ -226,6 +315,7 @@ Usage:
 Options:
   --host NAME              Known host name or a new custom host name
   --disk PATH              Target disk for NixOS installation
+  --ask-disk               Ignore a known host's disk and prompt for one
   --system SYSTEM          Override detected system, e.g. x86_64-linux
   --username NAME          Override the host user name
   --name NAME              Override the Git user name written into globals.nix
@@ -237,7 +327,7 @@ Options:
   --display-profile NAME   Display profile for custom home configs
   --swap-size SIZE         Swapfile size, e.g. 32G (default: RAM-matched)
   --install-layout NAME    Layout under modules/nixos/install/
-  --copy-repo yes|no       Copy the resulting repo into the installed system
+  --copy-repo yes|no       Copy the repo into the installed system (default: yes)
   --caps-remap yes|no      Configure Caps as tap Escape / hold Control on
                            generic Linux home installs
   --repo-dest PATH         Destination for copied repo inside the target root
@@ -245,6 +335,8 @@ Options:
                            nix-portable (implies --home)
   --skip-partitioning      Skip disko and reuse an already-partitioned, already-
                            mounted target root at /mnt
+  --offline                Require a prebuilt closure embedded in the installer
+  --online                 Ignore embedded closures and use the normal network path
   --dry-run                Show the resolved plan and exit without touching disks
   --no-color               Disable ANSI colors even on a TTY
   -y, --yes                Accept all confirmation prompts
@@ -334,6 +426,10 @@ resolve_target() {
     VISIBILITY=${VISIBILITY:-private}
   fi
 
+  if [[ $ASK_DISK -eq 1 ]]; then
+    DISK=""
+  fi
+
   USERNAME=${USERNAME:-$DEFAULT_USERNAME}
 }
 
@@ -349,6 +445,11 @@ resolve_modes() {
 }
 
 resolve_identity() {
+  if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+    FULL_NAME=${FULL_NAME:-$(offline_target_value '.name')}
+    EMAIL=${EMAIL:-$(offline_target_value '.email')}
+  fi
+
   if [[ -z "$FULL_NAME" ]]; then
     FULL_NAME=$(prompt_text "git name")
   fi
@@ -356,6 +457,157 @@ resolve_identity() {
   if [[ -z "$EMAIL" ]]; then
     EMAIL=$(prompt_text "git email" "" validate_email)
   fi
+
+  if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+    [[ "$FULL_NAME" == "$(offline_target_value '.name')" ]] \
+      || die "offline '${HOST}' closure uses the embedded Git name; use --online to override it"
+    [[ "$EMAIL" == "$(offline_target_value '.email')" ]] \
+      || die "offline '${HOST}' closure uses the embedded Git email; use --online to override it"
+  fi
+}
+
+offline_manifest_value() {
+  jq -r "$1 // empty" "$OFFLINE_INSTALL_MANIFEST"
+}
+
+offline_target_value() {
+  jq -r --arg host "$HOST" ".targets[\$host]$1 // empty" "$OFFLINE_INSTALL_MANIFEST"
+}
+
+select_offline_target() {
+  if [[ "$OFFLINE_POLICY" == "disable" ]]; then
+    return 0
+  fi
+
+  local manifest_strict="false"
+  local target_system=""
+
+  if [[ -r "$OFFLINE_INSTALL_MANIFEST" ]]; then
+    manifest_strict=$(offline_manifest_value '.strict')
+    target_system=$(offline_target_value '.system')
+  fi
+
+  if [[ "$NIXOS_MODE" != "yes" ]]; then
+    if [[ "$OFFLINE_POLICY" == "require" || "$manifest_strict" == "true" ]]; then
+      die "embedded closures install a complete NixOS target; use --online for Home-only or portable installs"
+    fi
+    return 0
+  fi
+
+  if [[ -z "$target_system" ]]; then
+    if [[ "$OFFLINE_POLICY" == "require" || "$manifest_strict" == "true" ]]; then
+      die "no embedded offline closure for '${HOST}' (${SYSTEM}); rerun with --online for the network installer"
+    fi
+    return 0
+  fi
+
+  if [[ "$target_system" != "$SYSTEM" ]]; then
+    die "embedded closure for '${HOST}' is ${target_system}, not ${SYSTEM}"
+  fi
+
+  local expected_username expected_nixos_mode expected_home_mode
+  local expected_nixos_profile expected_home_profile
+  local expected_display_profile expected_layout expected_swap_size
+  expected_username=$(offline_target_value '.username')
+  expected_nixos_mode=$(offline_target_value '.nixosEnabled')
+  expected_home_mode=$(offline_target_value '.homeEnabled')
+  expected_nixos_profile=$(offline_target_value '.nixosProfile')
+  expected_home_profile=$(offline_target_value '.homeProfile')
+  expected_display_profile=$(offline_target_value '.displayProfile')
+  expected_layout=$(offline_target_value '.installLayout')
+  expected_swap_size=$(offline_target_value '.swapSize')
+
+  [[ "$USERNAME" == "$expected_username" ]] \
+    || die "offline '${HOST}' closure requires --username ${expected_username}; use --online for overrides"
+  if [[ -n "$expected_nixos_mode" ]]; then
+    [[ "$NIXOS_MODE" == "$expected_nixos_mode" ]] \
+      || die "offline '${HOST}' closure requires NixOS mode '${expected_nixos_mode}'; use --online for overrides"
+  fi
+  if [[ -n "$expected_home_mode" ]]; then
+    [[ "$HOME_MODE" == "$expected_home_mode" ]] \
+      || die "offline '${HOST}' closure requires Home Manager mode '${expected_home_mode}'; use --online for overrides"
+  fi
+  [[ "$NIXOS_PROFILE" == "$expected_nixos_profile" ]] \
+    || die "offline '${HOST}' closure requires NixOS profile '${expected_nixos_profile}'; use --online for overrides"
+  [[ "$HOME_PROFILE" == "$expected_home_profile" ]] \
+    || die "offline '${HOST}' closure requires Home profile '${expected_home_profile}'; use --online for overrides"
+  [[ "$DISPLAY_PROFILE" == "$expected_display_profile" ]] \
+    || die "offline '${HOST}' closure requires display profile '${expected_display_profile}'; use --online for overrides"
+  [[ "$INSTALL_LAYOUT" == "$expected_layout" ]] \
+    || die "offline '${HOST}' closure requires install layout '${expected_layout}'; use --online for overrides"
+  [[ "$SWAP_SIZE" == "$expected_swap_size" ]] \
+    || die "offline '${HOST}' closure requires swap size '${expected_swap_size}'; use --online for overrides"
+
+  OFFLINE_TOPLEVEL=$(offline_target_value '.toplevel')
+  OFFLINE_CLOSURE_INFO=$(offline_target_value '.closureInfo')
+  OFFLINE_DISKO_SCRIPT=$(offline_target_value '.diskoScript')
+  OFFLINE_DISK_ALIAS=$(offline_target_value '.diskAlias')
+  OFFLINE_INSTALL=1
+}
+
+copy_offline_store() {
+  local image=${1:-/iso/nix-store.squashfs}
+  local target=${2:-/mnt/nix/store}
+  # Read the SquashFS directly so decompression can run ahead of file creation.
+  # The mounted-store fallback also supports running outside the live ISO.
+  if [[ -r "$image" ]]; then
+    local -a paths=()
+    mapfile -t paths <"$OFFLINE_CLOSURE_INFO/store-paths" || return 1
+    [[ ${#paths[@]} -gt 0 ]] || return 1
+    # Check membership without following symlinks. -match follows absolute
+    # store symlinks against the image root, where /nix/store does not exist.
+    local entries path
+    entries=$(unsquashfs -quiet -ls -max-depth 1 -dest /nix/store "$image") || return 1
+    local -A present=()
+    while IFS= read -r path; do
+      present["$path"]=1
+    done <<<"$entries"
+    for path in "${paths[@]}"; do
+      if [[ "$path" != /nix/store/* || -z "${present[$path]:-}" ]]; then
+        err "store path missing from ISO: $path"
+        return 1
+      fi
+    done
+    sudo unsquashfs -force -no-progress -strict-errors -no-wildcards \
+      -dest "$target" "$image" "${paths[@]#/nix/store/}"
+    return $?
+  fi
+
+  # The embedded manifest is world-readable; only the destination needs root.
+  # shellcheck disable=SC2024
+  sudo xargs "$(command -v xcp)" --recursive --target-directory "$target" \
+    <"$OFFLINE_CLOSURE_INFO/store-paths"
+}
+
+preflight_offline_target() {
+  if [[ $OFFLINE_INSTALL -ne 1 ]]; then
+    return 0
+  fi
+
+  require_cmd nix-store nixos-install
+  if [[ -r /iso/nix-store.squashfs ]]; then
+    require_cmd unsquashfs
+  else
+    require_cmd xcp
+  fi
+  [[ -d "$OFFLINE_TOPLEVEL" ]] || die "embedded system closure is missing: ${OFFLINE_TOPLEVEL}"
+  [[ -x "$OFFLINE_DISKO_SCRIPT" ]] || die "embedded Disko script is missing: ${OFFLINE_DISKO_SCRIPT}"
+  [[ -r "$OFFLINE_CLOSURE_INFO/store-paths" ]] \
+    || die "embedded closure path list is missing: ${OFFLINE_CLOSURE_INFO}/store-paths"
+  [[ -r "$OFFLINE_CLOSURE_INFO/registration" ]] \
+    || die "embedded closure registration is missing: ${OFFLINE_CLOSURE_INFO}/registration"
+  [[ "$OFFLINE_DISK_ALIAS" == /run/nix-config-installer/* ]] \
+    || die "unsafe offline disk alias in manifest: ${OFFLINE_DISK_ALIAS}"
+
+  local path=""
+  local missing_path_found=0
+  while IFS= read -r path; do
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+      err "missing embedded store path: $path"
+      missing_path_found=1
+    fi
+  done <"$OFFLINE_CLOSURE_INFO/store-paths"
+  [[ $missing_path_found -eq 0 ]] || die "offline closure is incomplete; rebuild the installer image"
 }
 
 resolve_custom_profiles() {
@@ -428,6 +680,13 @@ resolve_disk() {
     die "no non-removable disks detected"
   fi
 
+  if [[ -n "$DISK" && $DISK_FROM_ARGS -eq 0 ]]; then
+    if [[ ! -b "$DISK" ]] || [[ "$(lsblk -ndo TYPE "$DISK" 2>/dev/null || true)" != "disk" ]]; then
+      warn "configured target disk ${DISK} is unavailable; choose from the detected disks"
+      DISK=""
+    fi
+  fi
+
   if [[ -z "$DISK" ]]; then
     local default_label=""
     local chosen=""
@@ -485,6 +744,12 @@ recap() {
 
   if [[ $SKIP_PARTITIONING -eq 1 ]]; then
     kv "partitioning" "skipped"
+  fi
+
+  if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+    kv "install source" "${C_CYAN}embedded closure (network disabled)${C_RESET}"
+  elif [[ "$NIXOS_MODE" == "yes" ]]; then
+    kv "install source" "network/build fallback"
   fi
 
   if [[ "$HOME_MODE" == "yes" && "$NIXOS_MODE" != "yes" && $PORTABLE -eq 0 ]]; then
@@ -633,6 +898,8 @@ write_secret_key() {
 }
 
 run_nixos_install() {
+  local phase_started=$SECONDS
+
   if [[ "$NIXOS_MODE" != "yes" ]]; then
     return 0
   fi
@@ -656,44 +923,97 @@ run_nixos_install() {
       die "aborted."
     fi
 
-    local -a disko_args=(--mode "destroy,format,mount" --flake ".#${HOST}")
-
+    phase_started=$SECONDS
     if [[ "$INSTALL_LAYOUT" == luks-* ]]; then
       write_secret_key
     fi
 
+    stop_installer_prefetch
+
     section "disko"
-    (
-      cd "$WORKTREE"
-
-      if [[ $ASSUME_YES -eq 1 ]]; then
-        disko_args=(--yes-wipe-all-disks "${disko_args[@]}")
-      fi
-
+    if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+      local alias_dir=""
+      local resolved_disk=""
+      alias_dir=$(dirname "$OFFLINE_DISK_ALIAS")
+      resolved_disk=$(realpath "$DISK")
+      sudo install -d -m 0755 "$alias_dir"
+      sudo ln -sfn "$resolved_disk" "$OFFLINE_DISK_ALIAS"
+      OFFLINE_DISK_ALIAS_CREATED=1
       sudo --non-interactive true 2>/dev/null || true
-      exec </dev/tty >/dev/tty 2>&1
-      sudo disko "${disko_args[@]}"
-    )
+      sudo "$OFFLINE_DISKO_SCRIPT"
+    else
+      local -a disko_args=(--mode "destroy,format,mount" --flake ".#${HOST}")
+      (
+        cd "$WORKTREE"
+
+        if [[ $ASSUME_YES -eq 1 ]]; then
+          disko_args=(--yes-wipe-all-disks "${disko_args[@]}")
+        fi
+
+        sudo --non-interactive true 2>/dev/null || true
+        exec </dev/tty >/dev/tty 2>&1
+        sudo disko "${disko_args[@]}"
+      )
+    fi
     ok "disko finished"
+    PROFILE_DISKO_SECONDS=$((SECONDS - phase_started))
   fi
 
+  stop_installer_prefetch
   section "hardware config"
+  phase_started=$SECONDS
   sudo nixos-generate-config --no-filesystems --root /mnt
   sudo install -D -m 0644 /mnt/etc/nixos/hardware-configuration.nix \
     "$WORKTREE/machines/$HOST/hardware-configuration.nix"
   record_install_artifact "machines/$HOST/hardware-configuration.nix"
   ok "hardware-configuration.nix staged"
+  PROFILE_HARDWARE_SECONDS=$((SECONDS - phase_started))
 
   section "nixos-install"
   local install_log=""
   install_log=$(mktemp)
 
-  if ! (
-    cd "$WORKTREE"
-    sudo nixos-install --root /mnt --flake ".#${HOST}" 2>&1 | tee "$install_log"
-  ); then
-    rm -f "$install_log"
-    die "nixos-install failed"
+  if [[ $OFFLINE_INSTALL -eq 1 ]]; then
+    section "offline store copy"
+    sudo mkdir -p /mnt/nix/store
+    phase_started=$SECONDS
+    if ! run_with_spinner "copying the prebuilt ${HOST} closure from the ISO" \
+      copy_offline_store; then
+      rm -f "$install_log"
+      die "offline store copy failed"
+    fi
+    PROFILE_STORE_COPY_SECONDS=$((SECONDS - phase_started))
+
+    # The registration file is world-readable; only nix-store needs root.
+    phase_started=$SECONDS
+    # shellcheck disable=SC2024
+    sudo env NIX_STATE_DIR=/mnt/nix/var/nix \
+      nix-store --load-db <"$OFFLINE_CLOSURE_INFO/registration"
+    PROFILE_STORE_REGISTER_SECONDS=$((SECONDS - phase_started))
+
+    phase_started=$SECONDS
+    if ! sudo nixos-install \
+        --no-channel-copy \
+        --no-root-password \
+        --option builders "" \
+        --option substitute false \
+        --root /mnt \
+        --system "$OFFLINE_TOPLEVEL" \
+        2>&1 | tee "$install_log"; then
+      rm -f "$install_log"
+      die "offline nixos-install failed"
+    fi
+    PROFILE_NIXOS_INSTALL_SECONDS=$((SECONDS - phase_started))
+  else
+    phase_started=$SECONDS
+    if ! (
+      cd "$WORKTREE"
+      sudo nixos-install --root /mnt --flake ".#${HOST}" 2>&1 | tee "$install_log"
+    ); then
+      rm -f "$install_log"
+      die "nixos-install failed"
+    fi
+    PROFILE_NIXOS_INSTALL_SECONDS=$((SECONDS - phase_started))
   fi
 
   if grep -Eq '^ERROR:' "$install_log"; then
@@ -725,13 +1045,7 @@ copy_repo_to_target() {
     fi
   fi
 
-  if [[ -z "$COPY_REPO" ]]; then
-    if prompt_bool "copy repo to ${REPO_DEST}?" yes; then
-      COPY_REPO=yes
-    else
-      COPY_REPO=no
-    fi
-  fi
+  COPY_REPO=${COPY_REPO:-yes}
 
   if [[ "$COPY_REPO" == "yes" ]]; then
     local git_source=""
@@ -1070,17 +1384,25 @@ main() {
   script_banner
   resolve_target
   resolve_modes
+  select_offline_target
   resolve_identity
   resolve_custom_profiles
   resolve_disk
+  preflight_offline_target
+  if [[ $OFFLINE_INSTALL -eq 1 && $DRY_RUN -eq 0 ]]; then
+    start_installer_prefetch
+  fi
   recap
 
   if ! prompt_bool "proceed?" yes; then
     die "aborted."
   fi
 
+  INSTALL_STARTED_SECONDS=$SECONDS
+  local phase_started=$SECONDS
   prepare_worktree
   prepare_target_config
+  PROFILE_PREPARE_SECONDS=$((SECONDS - phase_started))
 
   if [[ $DRY_RUN -eq 1 ]]; then
     section "dry run · defs.nix"
@@ -1091,15 +1413,19 @@ main() {
   fi
 
   run_nixos_install
+  phase_started=$SECONDS
   copy_repo_to_target
   configure_gnome_shell_extensions
   run_home_install
   configure_home_default_shell
   configure_caps_remap
   setup_portable_env
+  PROFILE_FINISH_SECONDS=$((SECONDS - phase_started))
 
   section "done"
   ok "finished install for ${C_BOLD}${HOST}${C_RESET}"
+  show_install_timing
+  show_next_steps
 }
 
 main "$@"

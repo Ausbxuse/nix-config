@@ -13,8 +13,8 @@
 
   hardware.graphics = {
     enable = true;
-    enable32Bit = true;
-    extraPackages32 = with pkgs; [libvdpau-va-gl libva-vdpau-driver];
+    enable32Bit = pkgs.stdenv.hostPlatform.isx86_64;
+    extraPackages32 = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 (with pkgs; [libvdpau-va-gl libva-vdpau-driver]);
   };
 
   networking.firewall = {

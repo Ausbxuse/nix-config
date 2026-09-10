@@ -11,6 +11,7 @@
     ../../home/codex.nix
     ../../home/zsh
     ../../home/nvim
+    ../../home/herdr
     ../../home/tmux
   ];
 

@@ -18,6 +18,7 @@
   ];
 
   home.pointerCursor = {
+    enable = true;
     name = "capitaine-cursors-white";
     package = pkgs.bibata-cursors;
     size = lib.mkDefault 24;

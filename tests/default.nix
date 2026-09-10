@@ -8,12 +8,152 @@
       inherit lib const;
     })
   );
-  installScript = pkgs.writeText "install-flake-test.sh" (
+  emptyOfflineManifest = pkgs.writeText "offline-install-manifest.json" (builtins.toJSON {
+    schemaVersion = 1;
+    strict = false;
+    targets = {};
+  });
+  mkInstallScript = name: offlineInstallManifest:
+    pkgs.writeText name (
+      lib.replaceStrings
+      ["@source_lib@" "@repoSource@" "@hostDefsFile@" "@username@" "@offlineInstallManifest@"]
+      [
+        (builtins.readFile ../scripts/lib.sh)
+        (toString ../.)
+        (toString hostDefsJson)
+        "zhenyu"
+        (toString offlineInstallManifest)
+      ]
+      (builtins.readFile ../scripts/install-flake.sh)
+    );
+  installScript = mkInstallScript "install-flake-test.sh" emptyOfflineManifest;
+  profileTestConfig = pkgs.writeText "installer-profile-test.conf" ''
+    install_profile=auto
+    install_source=offline
+    edit_before_install=no
+    disk=prompt
+    copy_repo=yes
+    skip_partitioning=yes
+    dry_run=yes
+    color=no
+    assume_yes=no
+  '';
+  profileTestInjectionConfig = pkgs.writeText "installer-profile-injection-test.conf" ''
+    install_profile=spacy
+    install_source=online
+    edit_before_install=no
+    name=$(${pkgs.coreutils}/bin/touch /build/installer-profile-parser-executed)
+  '';
+  profileTestInvalidConfig = pkgs.writeText "installer-profile-invalid-test.conf" ''
+    install_profile=auto
+    unknown_key=yes
+  '';
+  profileTestManifest = pkgs.writeText "installer-profile-manifest-test.json" (builtins.toJSON {
+    schemaVersion = 1;
+    strict = true;
+    system = "x86_64-linux";
+    targets = {
+      razy = {};
+      spacy = {};
+    };
+  });
+  profileTestScript = pkgs.writeText "install-profile-test.sh" (
     lib.replaceStrings
-    ["@repoSource@" "@hostDefsFile@" "@username@"]
-    [(toString ../.) (toString hostDefsJson) "zhenyu"]
-    (builtins.readFile ../scripts/install-flake.sh)
+    ["@source_lib@" "@installerConfigTemplate@" "@offlineInstallManifest@" "@installerEditor@"]
+    [
+      (builtins.readFile ../scripts/lib.sh)
+      (toString ../isos/installer.conf)
+      (toString profileTestManifest)
+      "${profileTestNvim}/bin/nvim"
+    ]
+    (builtins.readFile ../scripts/install-profile.sh)
   );
+  profileTestInstaller = pkgs.writeShellScriptBin "install-config" ''
+    set -euo pipefail
+    : "''${INSTALLER_TEST_OUTPUT:?}"
+    printf '%s\n' "$@" >"$INSTALLER_TEST_OUTPUT"
+  '';
+  profileTestNvim = pkgs.writeShellScriptBin "nvim" ''
+    set -euo pipefail
+    : "''${INSTALLER_TEST_OUTPUT:?}"
+    printf '%s\n' "$@" >"$INSTALLER_TEST_OUTPUT"
+  '';
+  installerProfileTest =
+    pkgs.runCommand "installer-profile" {
+      nativeBuildInputs = [
+        pkgs.bash
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.jq
+        pkgs.util-linux
+        profileTestInstaller
+        profileTestNvim
+      ];
+    } ''
+      mkdir -p "$out"
+      mkdir -p "$out/pci-nvidia/0000:01:00.0" "$out/pci-no-nvidia"
+      printf '0x10de\n' >"$out/pci-nvidia/0000:01:00.0/vendor"
+      printf '0x030000\n' >"$out/pci-nvidia/0000:01:00.0/class"
+
+      printf '\n' | INSTALLER_TEST_OUTPUT="$out/razy-args" \
+        NIXOS_INSTALLER_CONFIG=${profileTestConfig} \
+        NIXOS_INSTALLER_PCI_ROOT="$out/pci-nvidia" \
+        script -qefc "bash ${profileTestScript}" "$out/razy-terminal"
+      grep -F "Use the 'razy' install profile?" "$out/razy-terminal"
+      grep -Fx -- '--host' "$out/razy-args"
+      grep -Fx -- 'razy' "$out/razy-args"
+      grep -Fx -- '--offline' "$out/razy-args"
+      grep -Fx -- '--ask-disk' "$out/razy-args"
+      grep -Fx -- '--skip-partitioning' "$out/razy-args"
+      grep -Fx -- '--dry-run' "$out/razy-args"
+      grep -Fx -- '--no-color' "$out/razy-args"
+      grep -Fx -- '--copy-repo' "$out/razy-args"
+      grep -Fx -- 'yes' "$out/razy-args"
+
+      printf '\n' | INSTALLER_TEST_OUTPUT="$out/spacy-args" \
+        NIXOS_INSTALLER_CONFIG=${profileTestConfig} \
+        NIXOS_INSTALLER_PCI_ROOT="$out/pci-no-nvidia" \
+        script -qefc "bash ${profileTestScript}" "$out/spacy-terminal"
+      grep -F "Use the 'spacy' install profile?" "$out/spacy-terminal"
+      grep -Fx -- '--host' "$out/spacy-args"
+      grep -Fx -- 'spacy' "$out/spacy-args"
+      grep -Fx -- '--offline' "$out/spacy-args"
+
+      INSTALLER_TEST_OUTPUT="$out/edit-args" \
+        NIXOS_INSTALLER_CONFIG=${profileTestConfig} \
+        bash ${profileTestScript} --edit
+      sed -n '1p' "$out/edit-args" | grep -Fx '${profileTestConfig}'
+
+      INSTALLER_TEST_OUTPUT="$out/interactive-args" \
+        bash ${profileTestScript} --interactive --dry-run --host razy
+      grep -Fx -- '--dry-run' "$out/interactive-args"
+      grep -Fx -- '--host' "$out/interactive-args"
+      grep -Fx -- 'razy' "$out/interactive-args"
+
+      printf '\n' | INSTALLER_TEST_OUTPUT="$out/injection-args" \
+        NIXOS_INSTALLER_CONFIG=${profileTestInjectionConfig} \
+        NIXOS_INSTALLER_PCI_ROOT="$out/pci-no-nvidia" \
+        script -qefc "bash ${profileTestScript}" "$out/injection-terminal"
+      test ! -e /build/installer-profile-parser-executed
+      grep -Fx '$(${pkgs.coreutils}/bin/touch /build/installer-profile-parser-executed)' \
+        "$out/injection-args"
+
+      if INSTALLER_TEST_OUTPUT="$out/invalid-args" \
+        NIXOS_INSTALLER_CONFIG=${profileTestInvalidConfig} \
+        bash ${profileTestScript} >"$out/invalid.out" 2>"$out/invalid.err"; then
+        echo "invalid installer option unexpectedly succeeded" >&2
+        exit 1
+      fi
+      grep -F "unknown option 'unknown_key'" "$out/invalid.err"
+
+      for key in \
+        install_profile install_source edit_before_install disk copy_repo \
+        repo_dest skip_partitioning dry_run color assume_yes system username \
+        name email nixos home nixos_profile home_profile display_profile \
+        install_layout swap_size caps_remap portable; do
+        grep -Eq "^$key=" ${../isos/installer.conf}
+      done
+    '';
   repoSource = builtins.path {
     path = ../.;
     name = "nix-config-shellcheck-source";
@@ -23,6 +163,7 @@
     "scripts/enroll.sh"
     "scripts/install-gnome-resume-background-test.sh"
     "scripts/install-flake.sh"
+    "scripts/install-profile.sh"
     "scripts/install_caps_ubuntu.sh"
     "scripts/lib.sh"
     "scripts/recovery-backup.sh"
@@ -291,8 +432,52 @@
           )
         ];
     };
+
+  offlineToplevel = pkgs.runCommand "offline-razy-toplevel-test" {} ''
+    mkdir -p "$out"
+  '';
+  offlineDiskoScript = pkgs.writeShellScript "offline-razy-disko-test" ''
+    printf 'offline Disko should be skipped by this fixture\n' >&2
+    exit 99
+  '';
+  offlineClosureInfo = pkgs.runCommand "offline-razy-closure-info-test" {} ''
+    mkdir -p "$out"
+    printf '%s\n' ${offlineToplevel} >"$out/store-paths"
+    : >"$out/registration"
+  '';
+  offlineRazyManifest = pkgs.writeText "offline-razy-manifest-test.json" (builtins.toJSON {
+    schemaVersion = 1;
+    strict = true;
+    system = "x86_64-linux";
+    targets.razy = {
+      system = "x86_64-linux";
+      username = "zhenyu";
+      name = const.name;
+      email = const.email;
+      nixosEnabled = "yes";
+      homeEnabled = "yes";
+      nixosProfile = "portable-nvidia-gnome";
+      homeProfile = "personal-gnome";
+      displayProfile = "laptop-2_5k";
+      installLayout = "luks-btrfs";
+      swapSize = "31G";
+      toplevel = toString offlineToplevel;
+      closureInfo = toString offlineClosureInfo;
+      diskoScript = toString offlineDiskoScript;
+      diskAlias = "/run/nix-config-installer/razy-target-disk";
+    };
+  });
+  offlineInstallScript = mkInstallScript "install-flake-offline-test.sh" offlineRazyManifest;
 in {
   inherit shellcheck;
+
+  "installer-profile" = installerProfileTest;
+  "installer-prefetch" = pkgs.runCommand "installer-prefetch-test" {
+    nativeBuildInputs = [pkgs.python3];
+  } ''
+    python ${repoSource}/tests/test-installer-prefetch.py
+    touch "$out"
+  '';
 
   "custom-home-install" = mkcustomHomeInstallTest {
     name = "custom-home";
@@ -311,6 +496,161 @@ in {
     name = "custom-nixos-aarch64";
     systemOverride = "aarch64-linux";
     nixosProfile = "minimal";
+  };
+
+  "installer-store-extract" = pkgs.runCommand "installer-store-extract" {
+    nativeBuildInputs = with pkgs; [bash coreutils diffutils findutils gnused nix squashfsTools xcp];
+  } ''
+    # Load the actual installer functions without starting its interactive main.
+    source <(sed '$d' ${installScript})
+    sudo() { "$@"; }
+    export NIX_CONFIG="experimental-features = nix-command"
+    OFFLINE_CLOSURE_INFO="$PWD/closure"
+    mkdir -p "$OFFLINE_CLOSURE_INFO" tree/pkg/subdir tree/unselected target
+    printf 'payload\n' >tree/pkg/subdir/data
+    printf '#!/bin/sh\nexit 0\n' >tree/pkg/executable
+    chmod 0555 tree/pkg/executable
+    ln tree/pkg/subdir/data tree/pkg/hardlink
+    ln -s subdir/data tree/pkg/symlink
+    ln -s pkg tree/root-link
+    ln -s /nix/store/pkg/executable tree/absolute-link
+    touch tree/unselected/excluded
+    printf '/nix/store/pkg\n/nix/store/root-link\n/nix/store/absolute-link\n' >"$OFFLINE_CLOSURE_INFO/store-paths"
+    mksquashfs tree image.squashfs -noappend -no-progress -processors 1 -comp zstd
+    copy_offline_store "$PWD/image.squashfs" "$PWD/target"
+    test ! -e target/unselected
+    test "$(readlink target/root-link)" = pkg
+    test "$(readlink target/absolute-link)" = /nix/store/pkg/executable
+    test "$(stat -c %i target/pkg/hardlink)" = "$(stat -c %i target/pkg/subdir/data)"
+    test "$(nix hash path tree/pkg)" = "$(nix hash path target/pkg)"
+
+    printf '/nix/store/missing\n' >"$OFFLINE_CLOSURE_INFO/store-paths"
+    if copy_offline_store "$PWD/image.squashfs" "$PWD/missing-target"; then
+      echo 'missing image path was silently accepted' >&2
+      exit 1
+    fi
+    : >"$OFFLINE_CLOSURE_INFO/store-paths"
+    if copy_offline_store "$PWD/image.squashfs" "$PWD/empty-target"; then
+      echo 'empty closure list was silently accepted' >&2
+      exit 1
+    fi
+    printf '/nix/store/pkg\n' >"$OFFLINE_CLOSURE_INFO/store-paths"
+    printf 'not squashfs' >corrupt.squashfs
+    if copy_offline_store "$PWD/corrupt.squashfs" "$PWD/corrupt-target"; then
+      echo 'corrupt image was silently accepted' >&2
+      exit 1
+    fi
+
+    # Offline installs launched outside the live ISO retain the mounted-store path.
+    printf '%s\n' "$PWD/tree/pkg" >"$OFFLINE_CLOSURE_INFO/store-paths"
+    mkdir fallback-target
+    copy_offline_store "$PWD/no-image" "$PWD/fallback-target"
+    test "$(nix hash path tree/pkg)" = "$(nix hash path fallback-target/pkg)"
+    touch "$out"
+  '';
+
+  "razy-offline-install" = mkTest {
+    name = "razy-offline-install";
+    modules = [
+      ({pkgs, ...}: {
+        environment.systemPackages = with pkgs; [
+          bash
+          coreutils
+          findutils
+          gawk
+          git
+          gnugrep
+          gnused
+          jq
+          perl
+          rsync
+          util-linux
+        ];
+      })
+    ];
+    testScript = lib.concatStringsSep "\n" [
+      ''machine.wait_for_unit("multi-user.target")''
+      ''
+        machine.succeed("""
+          mkdir -p /tmp/fakebin /tmp/test-artifacts /mnt/etc/nixos
+
+          cat >/tmp/fakebin/sudo <<'EOF'
+          #!/usr/bin/env bash
+          exec "$@"
+          EOF
+
+          cat >/tmp/fakebin/mountpoint <<'EOF'
+          #!/usr/bin/env bash
+          exit 0
+          EOF
+
+          cat >/tmp/fakebin/xcp <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "$@" > /tmp/test-artifacts/xcp-args
+          EOF
+
+          cat >/tmp/fakebin/nix-store <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "$@" > /tmp/test-artifacts/nix-store-args
+          cat >/dev/null
+          EOF
+
+          cat >/tmp/fakebin/nix <<'EOF'
+          #!/usr/bin/env bash
+          printf 'offline install attempted Nix evaluation or a build\n' >&2
+          exit 99
+          EOF
+
+          cat >/tmp/fakebin/nixos-generate-config <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p /mnt/etc/nixos
+          printf '{ ... }: {}\n' >/mnt/etc/nixos/hardware-configuration.nix
+          EOF
+
+          cat >/tmp/fakebin/nixos-install <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "$@" > /tmp/test-artifacts/nixos-install-args
+          EOF
+
+          cat >/tmp/fakebin/disko <<'EOF'
+          #!/usr/bin/env bash
+          printf 'network Disko path was used\n' >&2
+          exit 99
+          EOF
+
+          chmod +x /tmp/fakebin/*
+
+          PATH=/tmp/fakebin:$PATH ${pkgs.bash}/bin/bash ${offlineInstallScript} \
+            --host razy \
+            --disk /dev/vda \
+            --offline \
+            --skip-partitioning \
+            --copy-repo no \
+            --yes \
+            > /tmp/test-artifacts/install-output 2>&1
+
+          grep -Fx -- '--recursive' /tmp/test-artifacts/xcp-args
+          grep -Fx -- '--load-db' /tmp/test-artifacts/nix-store-args
+          grep -Fx -- '--system' /tmp/test-artifacts/nixos-install-args
+          grep -Fx '${offlineToplevel}' /tmp/test-artifacts/nixos-install-args
+          grep -Fx -- 'builders' /tmp/test-artifacts/nixos-install-args
+          grep -Fx -- 'substitute' /tmp/test-artifacts/nixos-install-args
+          grep -Fx -- 'false' /tmp/test-artifacts/nixos-install-args
+          grep -F '==> installation time' /tmp/test-artifacts/install-output
+          grep -F 'total' /tmp/test-artifacts/install-output
+          grep -F 'Power off this live installer: sudo poweroff' /tmp/test-artifacts/install-output
+          grep -F 'Boot from /dev/vda and enter the LUKS passphrase' /tmp/test-artifacts/install-output
+          if grep -Fx -- '--flake' /tmp/test-artifacts/nixos-install-args; then
+            printf 'offline install unexpectedly used --flake\n' >&2
+            exit 1
+          fi
+        """)
+      ''
+    ];
   };
 
   "custom-nixos-install-reports-errors" = mkTest {

@@ -30,36 +30,39 @@ return {
       config = function()
         local ts = require 'nvim-treesitter'
 
-        -- Optional: match the README example install_dir :contentReference[oaicite:6]{index=6}
-        ts.setup {
-          install_dir = vim.fn.stdpath 'data' .. '/site',
-        }
-
-        -- Equivalent of your old ensure_installed + auto_install:
-        -- install() is a no-op for already-installed parsers. :contentReference[oaicite:7]{index=7}
-        ts.install {
-          'bash',
-          'c',
-          'diff',
-          'typescript',
-          'tsx',
-          'html',
-          'lua',
-          'zsh',
-          'luadoc',
-          'markdown',
-          'markdown_inline',
-          'query',
-          'vim',
-          'vimdoc',
-          'comment',
-          'python',
-          'cpp',
-          'just',
-          'nix',
-          'tmux',
-          'yaml',
-        }
+        if vim.env.NVIM_NIX_PACKAGED == '1' then
+          -- Home Manager puts the selected, precompiled parsers on the runtime
+          -- path. Never create mutable parser state or contact GitHub here.
+          ts.setup {}
+        else
+          -- Preserve the standalone vim.pack workflow for non-Nix installs.
+          ts.setup {
+            install_dir = vim.fn.stdpath 'data' .. '/site',
+          }
+          ts.install {
+            'bash',
+            'c',
+            'diff',
+            'typescript',
+            'tsx',
+            'html',
+            'lua',
+            'zsh',
+            'luadoc',
+            'markdown',
+            'markdown_inline',
+            'query',
+            'vim',
+            'vimdoc',
+            'comment',
+            'python',
+            'cpp',
+            'just',
+            'nix',
+            'tmux',
+            'yaml',
+          }
+        end
 
         -- Enable TS highlighting (provided by Neovim) :contentReference[oaicite:8]{index=8}
         vim.api.nvim_create_autocmd('FileType', {
@@ -269,6 +272,15 @@ return {
         zindex = 20, -- The Z-index of the context window
         on_attach = nil, -- (fun(buf: integer): boolean) return false to disable attaching
       }
+    end,
+  },
+  {
+    'Bekaboo/dropbar.nvim',
+    config = function()
+      local dropbar_api = require 'dropbar.api'
+      vim.keymap.set('n', '<leader>;', dropbar_api.pick, { desc = 'Pick symbols in winbar' })
+      vim.keymap.set('n', '[;', dropbar_api.goto_context_start, { desc = 'Go to start of current context' })
+      vim.keymap.set('n', '];', dropbar_api.select_next_context, { desc = 'Select next context' })
     end,
   },
   {

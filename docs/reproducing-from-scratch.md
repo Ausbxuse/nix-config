@@ -851,6 +851,6 @@ single VM — no peer needed for that test.
 | #   | Item                                         | Choice                                                              |
 | --- | -------------------------------------------- | ------------------------------------------------------------------- |
 | 16  | Drive mixes encrypted/unencrypted partitions | Yes (confirmed)                                                     |
-| 17  | Installer ISO scope                          | Lean: GNOME + terminal + NetworkManager + `nix run .#install`-ready |
+| 17  | Installer ISO scope                          | Spacy-style minimal GNOME + terminal + NetworkManager + offline installer |
 | 18  | Canonical media path                         | `~/Media/{Pictures,Videos,Music}/`                                  |
 | 19  | Drive size                                   | ~900 GB, dedicated mostly to media mirror                           |

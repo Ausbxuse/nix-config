@@ -235,16 +235,6 @@ vim.lsp.config.clangd = {
 vim.lsp.enable 'clangd'
 -- }}}
 
--- Typst {{{
-vim.lsp.config.tinymist = {
-  cmd = { 'tinymist' },
-  filetypes = { 'typst' },
-  root_markers = { '.git', vim.uv.cwd() },
-}
-
-vim.lsp.enable 'tinymist'
--- }}}
-
 -- Bash {{{
 vim.lsp.config.bashls = {
   cmd = { 'bash-language-server', 'start' },
@@ -347,17 +337,6 @@ vim.lsp.config.tailwindcssls = {
 
 vim.lsp.enable { 'cssls', 'html', 'tailwindcssls' }
 
-vim.lsp.config.astro = {
-  cmd = { 'astro-ls', '--stdio' },
-  filetypes = { 'astro' },
-  -- root_markers = { 'astro.config.mjs', 'package.json', '.git', vim.uv.cwd() },
-  init_options = {
-    typescript = {
-      tsdk = vim.fn.getcwd() .. '/node_modules/typescript/lib',
-    },
-  },
-}
-vim.lsp.enable 'astro'
 -- }}}
 
 -- }}}
@@ -426,34 +405,6 @@ vim.lsp.config.marksman = {
 vim.lsp.enable { 'jsonls', 'yamlls', 'taplo', 'marksman' }
 -- }}}
 
-vim.lsp.config.ltex_ls_plus = {
-  cmd = { 'ltex-ls-plus' },
-  filetypes = { 'tex', 'bib', 'markdown', 'plaintex' },
-  settings = {
-    ltex = {
-      language = 'en-US',
-      diagnosticSeverity = 'information',
-      disabledRules = {
-        ['en-US'] = { 'MORFOLOGIK_RULE_EN_US' },
-      },
-      additionalRules = {
-        ['en-US'] = {
-          enabled = { 'PROFANITY' },
-        },
-      },
-      trace = { server = 'off' },
-      -- dictionary = {
-      --   ['en-US'] = words,
-      -- },
-      -- completion = {
-      --   enabled = true,
-      -- }
-    },
-  },
-}
-
--- vim.lsp.enable 'ltex_ls_plus'
-
 vim.lsp.config.typos = {
   cmd = { 'typos-lsp' },
   filetypes = { 'markdown', 'text', 'tex', 'plaintex', 'rst' },
@@ -489,7 +440,7 @@ return {
     opts = {
       library = {
         -- Load luvit types when the `vim.uv` word is found
-        { path = 'luvit-meta/library', words = { 'vim%.uv' } },
+        { path = vim.env.NVIM_LUVIT_META_PATH or 'luvit-meta/library', words = { 'vim%.uv' } },
       },
     },
     config = function(_, opts)

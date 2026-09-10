@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   lib,
   pkgs,
   ...
@@ -55,6 +56,7 @@
   builtInSkills = pkgs.runCommandLocal "codex-built-in-skills" {} ''
     install -Dm644 ${pSkill.skill} "$out/p/SKILL.md"
     install -Dm644 ${pSkill.openaiYaml} "$out/p/agents/openai.yaml"
+    install -Dm644 ${inputs.herdr}/skills/herdr/SKILL.md "$out/herdr/SKILL.md"
   '';
   mergedSkills = pkgs.runCommandLocal "codex-skills" {} ''
     mkdir -p "$out"

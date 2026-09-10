@@ -21,6 +21,11 @@
 in {
   services.xserver.enable = true;
   services.desktopManager.gnome.enable = true;
+  # Screen reading is unused on these desktops and on the live installer.
+  # Keep client libraries required by applications, without the speech daemon
+  # and its MBROLA voice databases.
+  services.orca.enable = lib.mkForce false;
+  services.speechd.enable = lib.mkForce false;
   services.displayManager.gdm.enable = true;
   services.displayManager.gdm.settings = {
     Theme = {

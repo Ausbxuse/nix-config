@@ -7,8 +7,8 @@
 }: let
   system = pkgs.stdenv.hostPlatform.system;
   codex = inputs.codex-cli-nix.packages.${system}.default;
-  codexModel = "gpt-5.5";
-  codexReasoningEffort = "medium";
+  codexModel = "gpt-5.6-sol";
+  codexReasoningEffort = "max";
   agentMaxThreads = 5;
   agentMaxDepth = 1;
   toml = pkgs.formats.toml {};

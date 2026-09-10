@@ -1,25 +1,27 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }: let
   defaultLocalModel = "qwen3.6:27b";
 in {
   imports = [
-    ../../modules/home/slimevr.nix
     ../../modules/home/gnome-tweaks.nix
     ../../modules/home/codex-local.nix
     ../../modules/home/ollama-agent.nix
   ];
 
   my.codexLocal = {
-    enable = true;
+    enable = false;
     localModel = defaultLocalModel;
     models = [defaultLocalModel];
   };
 
+  home.packages = [pkgs.wechat];
+
   services.ollama-agent = {
-    enable = true;
+    enable = false;
     port = 11434;
     contextLength = 32768;
     flashAttention = true;

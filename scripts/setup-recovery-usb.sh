@@ -2,8 +2,8 @@
 # setup-recovery-usb: partition and format a USB drive for recovery backups.
 #
 # Creates two partitions:
-#   1. up to 8 GiB FAT32  (label: NIX_INSTALL)  — bootable installer ISO
-#   2. Remaining     ext4   (label: RECOVERY) — bundle + restic + media
+#   1. up to 32 GiB FAT32 (label: NIX_INSTALL) — bootable offline installer ISO
+#   2. Remaining ext4     (label: RECOVERY)    — bundle + restic + media
 #
 # Usage:
 #   nix run .#setup-recovery-usb
@@ -67,11 +67,19 @@ partprobe "$DISK" 2>/dev/null || sleep 2
 
 DISK_BYTES=$(blockdev --getsize64 "$DISK")
 DISK_GIB=$(( DISK_BYTES / 1073741824 ))
-if (( DISK_GIB < 4 )); then
-  die "disk too small (${DISK_GIB} GiB); need at least 4 GiB"
+DESIRED_INSTALL_GIB=${NIX_INSTALL_GIB:-32}
+if [[ ! "$DESIRED_INSTALL_GIB" =~ ^[0-9]+$ ]] || (( DESIRED_INSTALL_GIB < 1 )); then
+  die "NIX_INSTALL_GIB must be a positive integer"
 fi
-# Use 8 GiB for installer if it fits, otherwise leave 1 GiB for RECOVERY
-INSTALL_GIB=$(( DISK_GIB > 9 ? 8 : DISK_GIB - 1 ))
+if (( DISK_GIB < 17 )); then
+  die "disk too small (${DISK_GIB} GiB); the current offline image needs a 16 GiB installer partition plus recovery space"
+fi
+# The embedded razy closure is substantially larger than a stock live image.
+# Prefer 32 GiB, but always leave at least 1 GiB for recovery data.
+INSTALL_GIB=$(( DISK_GIB > DESIRED_INSTALL_GIB + 1 ? DESIRED_INSTALL_GIB : DISK_GIB - 1 ))
+if (( INSTALL_GIB < DESIRED_INSTALL_GIB )); then
+  warn "installer partition is only ${INSTALL_GIB} GiB; verify the built ISO fits before writing it"
+fi
 
 info "creating partition 1: ${INSTALL_GIB} GiB FAT32 (NIX_INSTALL)"
 sgdisk -n 1:0:+${INSTALL_GIB}G -t 1:EF00 -c 1:NIX_INSTALL "$DISK"

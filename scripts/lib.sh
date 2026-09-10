@@ -358,3 +358,30 @@ detect_ram_gib() {
 
   awk -v kb="$kb" 'BEGIN { printf "%d\n", int((kb + 1024*1024 - 1) / (1024*1024)) }'
 }
+
+# Only the live ISO supplies this optional helper. It reads compressed image
+# pages into reclaimable cache while the installer waits for user input.
+INSTALLER_PREFETCH_PID=""
+start_installer_prefetch() {
+  [[ "${NIXOS_INSTALLER_PREFETCH:-1}" != 0 ]] || return 0
+  [[ -z "$INSTALLER_PREFETCH_PID" ]] || return 0
+  [[ -r /iso/nix-store.squashfs ]] || return 0
+  command -v installer-prefetch >/dev/null 2>&1 || return 0
+  installer-prefetch </dev/null >/dev/null 2>&1 &
+  INSTALLER_PREFETCH_PID=$!
+}
+
+stop_installer_prefetch() {
+  if [[ -n "$INSTALLER_PREFETCH_PID" ]]; then
+    local job=""
+    # A completed worker may have been reaped during a long editor session.
+    # Only signal a still-running job owned by this shell, never a reused PID.
+    for job in $(jobs -pr); do
+      if [[ "$job" == "$INSTALLER_PREFETCH_PID" ]]; then
+        kill "$job" 2>/dev/null || true
+      fi
+    done
+    wait "$INSTALLER_PREFETCH_PID" 2>/dev/null || true
+    INSTALLER_PREFETCH_PID=""
+  fi
+}

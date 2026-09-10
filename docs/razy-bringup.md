@@ -126,16 +126,26 @@ Two observations mattered:
 
 Once we stopped fighting about fake monolithic files and instead forced the machine onto split function topologies, the audio stack finally came up.
 
-## The Actual Working Audio Fix
+## The Original Working Audio Workaround
 
-The working fix lives in:
+The original workaround lived in:
 
 - [machines/razy/nixos.nix](/home/zhenyu/src/public/nix-config/machines/razy/nixos.nix)
-- [machines/razy/patches/ptl-razer-blade16-rt721-rt1320.patch](/home/zhenyu/src/public/nix-config/machines/razy/patches/ptl-razer-blade16-rt721-rt1320.patch)
+- a local kernel patch for the Razer-specific PTL SoundWire description and
+  function-topology selection
+
+The local patch was removed after nixos-unstable moved to Linux 7.2, which
+contains the generic SoundWire support and topology-selection fixes needed by
+this hardware.
+
+That kernel cleanup exposed a separate userspace issue: `alsa-ucm-conf 1.2.16.1`
+selects the combined `rt721+rt1320` codec layout but does not ship the combined
+initializer it then imports. The current host configuration supplies only that
+missing composition file; it does not restore any kernel patch or topology shim.
 
 ### Kernel-side machine description
 
-The patch adds a Razer-specific PTL machine description:
+The patch added a Razer-specific PTL machine description:
 
 - DMI match for `Razer Blade 16 - RZ09-0581`
 - custom PTL SoundWire machine entry for:
@@ -148,7 +158,7 @@ The patch adds a Razer-specific PTL machine description:
   - `SOC_SDW_SIDECAR_AMPS`
   - `SOC_SDW_PCH_DMIC`
 
-This gives the kernel an explicit board model instead of hoping a near match will work.
+This gave the older kernel an explicit board model instead of hoping a near match would work.
 
 ### Forcing split function topologies
 
@@ -159,11 +169,11 @@ The crucial step was changing the Razer PTL machine entry to use:
 .get_function_tplg_files = sof_sdw_get_tplg_files,
 ```
 
-This intentionally avoids a broken monolithic fallback path and keeps SOF on split function topologies.
+This intentionally avoided a broken monolithic fallback path and kept SOF on split function topologies.
 
 ### Making split topology selection robust enough
 
-The patch also modifies `sof-function-topology-lib.c` to do two important things:
+The patch also modified `sof-function-topology-lib.c` to do two important things:
 
 1. Ignore `SSP*-BT` links during function-topology selection.
 
@@ -179,7 +189,7 @@ Specifically:
 - jack BE IDs map to the generic SDCA jack fragment
 - amp BE IDs map to the SDCA amp fragment
 
-This was the missing bridge between the board's dai links and the split topology fragments that actually existed in firmware.
+This was the missing bridge between the board's dai links and the split topology fragments that actually existed in firmware. Linux 7.2 now provides that bridge through generic SoundWire machine discovery, RT721/RT1320 codec metadata, and unconditional DAI type naming for function-topology selection.
 
 ## The First Known-Good Boot
 
@@ -228,7 +238,9 @@ Removed:
 - redundant typed-dailink forcing path
 - the long initrd crypto module override that was only needed to make a custom dev kernel package build
 
-This repo should prefer the minimal patch set that actually explains the success.
+The repository now uses the upstream generic kernel implementation and carries
+no local audio kernel patch. A small ALSA UCM composition file remains until
+the combined RT721/RT1320 initializer is available upstream.
 
 ## Kernel Choice
 
@@ -238,17 +250,46 @@ The first known-good audio boot happened with a SOF development kernel source:
 - `topic/sof-dev`
 - version `7.0.0-rc3`
 
-That was later switched back toward nixpkgs stock kernel packaging to remove unnecessary divergence.
+That was later switched to a stock-packaged Linux 6.19 kernel plus the local
+Razer patch. The current configuration uses nixos-unstable's stock Linux 7.2
+kernel with no host-specific kernel override.
 
-Important caution:
+Linux 7.2 contains the generic replacements for the local changes, including:
 
-- the known-good runtime proof happened on the SOF dev kernel path
-- switching back to nixpkgs latest kernel is a cleanup step and should be treated as a new validation point
+- RT721 and RT1320 SoundWire codec descriptions
+- corrected SDCA endpoint discovery and RT1320 amp identification
+- robust default SoundWire machine construction
+- DAI type metadata for split function-topology selection
 
-In other words:
+The physical laptop has now booted Linux 7.2. Kernel logs confirm that generic
+SoundWire machine discovery found the RT721 jack, RT1320 amplifiers, and DMIC,
+then loaded the expected jack, amp, and PTL DMIC topology fragments.
 
-- the patch logic is the important part
-- but the only fully proven working combination during debugging was still the dev-kernel path
+## Current ALSA UCM Workaround
+
+The boot also revealed an `alsa-ucm-conf 1.2.16.1` packaging/configuration gap.
+The card reports this speaker layout:
+
+```text
+spk:rt721+rt1320
+```
+
+The generic `sof-soundwire` UCM then imports:
+
+```text
+/codecs/rt721+rt1320/init.conf
+```
+
+That file is absent upstream even though the individual RT721 and RT1320
+initializers are present. WirePlumber therefore fell back to a stereo PCM,
+selected the jack path, and exposed no usable microphone.
+
+The host-local file at
+`machines/razy/alsa-ucm-conf/codecs/rt721+rt1320/init.conf` composes those two
+existing initializers. `machines/razy/nixos.nix` adds it to an overridden
+`alsa-ucm-conf` output and points WirePlumber at that UCM tree. With it loaded,
+the HiFi profile exposes Speaker PCM 2, DMIC PCM 10, Headphones PCM 0, and
+Headset Microphone PCM 1.
 
 ## Other `razy` Issues Fixed Along The Way
 
@@ -283,7 +324,19 @@ The immediate mitigation was:
 hardware.nvidia.powerManagement.finegrained = lib.mkForce false;
 ```
 
-That was kept as a pragmatic stability choice.
+That was a pragmatic debugging choice. The current host configuration has
+since re-enabled fine-grained NVIDIA power management.
+
+### Panther Lake `thermald`
+
+`thermald` 2.5.12 marks Panther Lake CPU model `0xcc` as adaptive-only. This
+laptop does not expose the INT3400 adaptive data vault that mode requires, so
+the daemon rejects the platform and makes NixOS activation fail its unit health
+check.
+
+The host disables `thermald` instead of bypassing its CPUID safety check and
+running the unsupported generic engine. Firmware/EC thermal control, kernel
+thermal zones, `intel_pstate`, and TLP remain active.
 
 ### Blue wallpaper after lid resume
 
@@ -299,54 +352,47 @@ This leaves GNOME's declarative wallpaper settings as the only wallpaper source.
 
 At the end of this debugging pass:
 
-- internal audio works
+- Linux 7.2 detects the complete internal audio layout without a kernel patch
+- the ALSA HiFi profile exposes internal speakers and microphones with the
+  host-local UCM composition file
 - the fake topology shims are gone
-- the real fix is concentrated in one host patch plus host kernel selection
+- the local audio patch and dedicated 6.19 kernel input are gone
+- `razy` inherits the stock `linuxPackages_latest` kernel, currently Linux 7.2
 - brightness works
 - GDM scaling is configured
-- NVIDIA fine-grained PM is disabled for stability
+- NVIDIA fine-grained PM is enabled
+- `thermald` is disabled because this firmware cannot provide its required
+  Panther Lake adaptive data
 - wallpaper handling is simpler again
 
-## What Still Deserves Future Cleanup
+## What Still Deserves Future Validation
 
-### 1. Validate stock nixpkgs kernel
+### 1. Validate physical audio paths
 
-If the same patch works on nixpkgs latest kernel, that is the preferred long-term state.
+Test speaker playback, internal-microphone capture, the headphone/headset jack,
+and audio after suspend and resume before deleting the last known-good patched
+system generation. Kernel enumeration, topology loading, and PipeWire endpoint
+creation have already been validated on Linux 7.2.
 
-That should be treated as a separate validation, not assumed automatically.
+### 2. Remove the UCM workaround after the upstream fix
 
-### 2. Upstream the audio fix properly
-
-The patch is now coherent, but it is still local bring-up work.
-
-Good next upstream step:
-
-- reduce it to the minimal causally necessary changes
-- attach the successful logs
-- explain why the split-function-topology path is required for this board
-
-### 3. Re-check ALSA user-space visibility
-
-During debugging there was at least one odd state where:
-
-- `/proc/asound/cards` showed the card
-- but `aplay -l` and `arecord -l` did not
-
-That inconsistency was secondary once real audio worked, but it is still worth cleaning up if it reappears.
+Once `alsa-ucm-conf` ships a combined RT721/RT1320 initializer, remove the local
+composition file and `ALSA_CONFIG_UCM2` override, then repeat the physical audio
+tests.
 
 ## Files Most Relevant To `razy`
 
 - [machines/razy/nixos.nix](/home/zhenyu/src/public/nix-config/machines/razy/nixos.nix)
-- [machines/razy/patches/ptl-razer-blade16-rt721-rt1320.patch](/home/zhenyu/src/public/nix-config/machines/razy/patches/ptl-razer-blade16-rt721-rt1320.patch)
+- [machines/razy/alsa-ucm-conf/codecs/rt721+rt1320/init.conf](/home/zhenyu/src/public/nix-config/machines/razy/alsa-ucm-conf/codecs/rt721+rt1320/init.conf)
 - [machines/razy/gdm-monitors.xml](/home/zhenyu/src/public/nix-config/machines/razy/gdm-monitors.xml)
 - [machines/razy/power.nix](/home/zhenyu/src/public/nix-config/machines/razy/power.nix)
 - [modules/home/gnome/dconf.nix](/home/zhenyu/src/public/nix-config/modules/home/gnome/dconf.nix)
 
 ## Short Version
 
-The audio fix was not "find the right PTL topology filename."
+The original audio fix was not "find the right PTL topology filename."
 
-It was:
+It required:
 
 - give the kernel a real Razer-specific `rt721 + rt1320` PTL board description
 - stop monolithic topology fallback
@@ -354,4 +400,8 @@ It was:
 - make split topology selection tolerant of BT offload links
 - infer jack/amp fragments from BE IDs when dai link names are still plain `SDW<port>-*`
 
-That is what finally made the machine behave like a real `sof-soundwire` laptop instead of dying on `Capture-SmartMic.0`.
+Linux 7.2 now handles the board through generic SoundWire discovery and the
+upstream RT721/RT1320 function-topology path, so the local implementation of
+those kernel steps is no longer carried in this repository. The remaining
+userspace workaround merely composes the individual codec initializers that
+`alsa-ucm-conf` already ships.

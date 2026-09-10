@@ -29,6 +29,10 @@
       "rev": "78c638293f0ea6a2245eca46e9933ee271792d7e",
       "src": "https://github.com/zbirenbaum/copilot.lua"
     },
+    "dropbar.nvim": {
+      "rev": "808ba31cde89aec8833e9789f5e04557cd31c9e1",
+      "src": "https://github.com/Bekaboo/dropbar.nvim"
+    },
     "fzf-lua": {
       "rev": "b437bafc981a180d609bb4092c56ce8999f7a2c4",
       "src": "https://github.com/ibhagwan/fzf-lua"
@@ -91,9 +95,9 @@
       "rev": "137eaa6e98e8a6b3dd63548c2de4422007a9e689",
       "src": "https://github.com/ausbxuse/snappy.nvim"
     },
-    "typst-preview.nvim": {
-      "rev": "87db18b8d19c8b0eed399f52e4c527ce5afe4817",
-      "src": "https://github.com/chomosuke/typst-preview.nvim"
+    "symbols.nvim": {
+      "rev": "b22e987c69749adcf1342e8040312e9318083d4a",
+      "src": "https://github.com/oskarrrrrrr/symbols.nvim"
     },
     "undotree": {
       "rev": "6fa6b57cda8459e1e4b2ca34df702f55242f4e4d",

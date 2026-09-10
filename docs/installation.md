@@ -63,6 +63,149 @@ Use public `machines/defs.nix` for pre-admission bootstrap entries. Once a host 
 
 ## Quick Start
 
+### Fast offline Razy or Spacy install
+
+Build the x86_64 installer while online:
+
+```bash
+nix build .#images.x86_64-linux.gnome-iso
+```
+
+Write `result/iso/*.iso` to installation media and boot it. The graphical live
+session starts `install-profile` automatically. It checks PCI display devices,
+recommends Razy when it sees NVIDIA, recommends Spacy otherwise, and asks you to
+affirm the choice before doing anything destructive.
+
+The live `nixos` account uses the same reusable minimal GNOME system layer,
+Home Manager `minimal-gui` profile, and `gnome-default` display profile as
+Spacy. Installer-specific overrides disable persistent/background behavior
+such as Syncthing, screen locking, and automatic suspend; they also retain the
+offline-safe Neovim wrapper and installer launchers. The image also disables
+the upstream graphical ISO's forced Hyper-V and Xen guest integrations: under
+Quickemu they probe the wrong hypervisor and can otherwise produce a misleading
+`Failed to start Load Kernel Modules` banner. Because these profiles provision
+Btrfs, the live image also refuses to force-import unrelated ZFS root pools.
+
+The useful commands on the ISO are:
+
+```bash
+install-profile       # auto-detect, optional config edit, then install
+edit-install-config   # edit ~/nixos-install.conf only
+install-razy          # explicitly select Razy; accepts install-config options
+install-spacy         # explicitly select Spacy; accepts install-config options
+install-interactive   # original question-by-question terminal installer
+```
+
+The current dual-profile image is about 14.88 GiB (15.97 GB).
+`nix run .#setup-recovery-usb` now reserves up to 32 GiB for it, and
+`just refresh-installer-usb /dev/<partition>` refuses to write an image that
+does not fit.
+
+The image contains complete public NixOS closures, including Home Manager
+packages, for both targets:
+
+- `razy`: `portable-nvidia-gnome`, `personal-gnome`, `laptop-2_5k`, and NVIDIA
+  PRIME offload (sync remains disabled)
+- `spacy`: `portable-gnome`, `minimal-gui`, `gnome-default`, and no NVIDIA
+  configuration
+
+Installation does not evaluate or build either target and does not contact a
+binary cache: it partitions the selected disk, copies the selected closure
+locally in parallel, registers it, and activates that exact system. The target
+disk may be overridden without changing the embedded configuration.
+
+The installed Neovim configuration, all enabled plugins, compiled Tree-sitter
+parsers, language servers, and plugin helper binaries are store-backed Home
+Manager inputs. First launch does not run `vim.pack.add`, `TSInstall`, or a
+plugin-specific binary downloader. It does not depend on the repository being
+copied to `~/src/public/nix-config`, so Neovim remains configured when
+`copy_repo=no`. Features whose purpose is an online service, such as Copilot,
+still need that service when used, but editor installation and startup do not.
+Mutable `vim.pack` plugins, parsers, and queries left by an older deployment
+are ignored so they cannot shadow the Nix versions; they are not deleted
+automatically.
+By default the installer copies the adjusted public repository there without a
+separate prompt, making the new host ready for subsequent rebuilds and
+enrollment. Set `copy_repo=no` explicitly to opt out.
+
+Offline setup reads ahead from the compressed ISO while you edit settings,
+confirm the profile, or enter the disk passphrase. It uses reclaimable page
+cache, capped at half of currently available RAM, and stops if available memory
+falls below 512 MiB. The worker is cancelled before disk preparation/copying,
+on cancellation, and when handing off between installer interfaces. It does
+not unpack packages, write another image, or download anything. The helper
+only runs when the live ISO's Squashfs backing file is present. Online and
+dry-run installs skip it. To compare the same setup with prefetch disabled:
+
+```sh
+NIXOS_INSTALLER_PREFETCH=0 install-profile
+```
+
+The live installer extracts only the selected host's closure directly from
+SquashFS, allowing parallel decompression to run ahead of file creation. It
+preserves file metadata and hardlinks, and treats missing paths or extraction
+errors as installation failures. The extraction reuses the compressed pages
+warmed during setup. Offline installs launched outside the live ISO use the
+mounted Nix store instead.
+
+Razy retains GRUB's other-OS detection. During `nixos-enter`, target activation
+creates dmraid's runtime lock directory after mounting `/run`; creating it
+under the installer's outer `/mnt/run` is insufficient because that directory
+is hidden by the activation mount.
+
+After a successful installation, the installer prints a phase-by-phase timing
+table followed by the required next steps. It pauses for Enter when launched
+interactively so a desktop terminal cannot close before those instructions are
+read. An end-to-end Spacy installation in an 8 GiB, 6-vCPU KVM with no network
+device measured on 2026-09-03 as follows (storage speed will change the result):
+
+| Phase | Time |
+| --- | ---: |
+| Prepare | 0s |
+| Disk + LUKS | 25s |
+| Hardware config | 0s |
+| Embedded store copy | 1m 41s |
+| Store registration | 1s |
+| `nixos-install` | 2s |
+| Finish | 0s |
+| **Total** | **2m 09s** |
+
+When that success screen appears, run `sudo poweroff`, remove or eject the
+installer medium, and boot the target disk. Enter the LUKS passphrase at the
+boot prompt, then enroll Razy or Spacy to add private secrets and admin access.
+Do not launch the installer against that disk again unless erasing it is
+intentional.
+
+The portable target initrds include NVMe/SATA and virtio block drivers. This is
+required for Quickemu: UEFI and GRUB can see a virtio disk before Linux starts,
+but the encrypted root is invisible to stage 1 unless `virtio_pci` and
+`virtio_blk` are already in the initrd. The offline Spacy path has been tested
+through installation, firmware/GRUB boot, LUKS unlock, all Btrfs mounts and
+swap activation, Home Manager activation, and the GNOME login screen.
+
+The launcher creates one writable, documented settings file at
+`~/nixos-install.conf`. Every accepted key and value is listed in comments in
+that file. Choosing the edit option opens it with the repository's Neovim
+options, keymaps, and autocmds. Plugin bootstrapping is disabled in this special
+editor mode so opening it remains offline-safe. The original `install-config`
+terminal UI is still available through `install-interactive`.
+
+Disk selection, repo copying, dry-run behavior, and other installer-only
+options can change while remaining fully offline. Identity, NixOS/Home/display
+profiles, layout, and swap size are baked into each closure; the launcher
+rejects incompatible offline overrides and tells you to select
+`install_source=online`. Rebuild the ISO when a baked setting changes.
+
+The embedded targets intentionally use the checked-in public `nix-secrets`
+stub even if the ISO build command is given a private input override. Enroll
+the installed machine afterward to add its real secrets. Other hosts are
+rejected by default on this image; pass `--online` to `install-config` only
+when you deliberately want the normal network/build path.
+
+Each closure is a snapshot. Rebuild the ISO whenever the flake changes. The
+installer checks that every expected store path is present before asking for
+destructive confirmation.
+
 ### Known host install
 
 Use this when the host already exists in the merged host registry and has corresponding files under [machines](../machines).
@@ -266,7 +409,6 @@ portable-nvidia-gnome
 For the display profile prompt, the value should match one of the profiles in [modules/home/display-profile.nix](../modules/home/display-profile.nix), for example:
 
 - `gnome-default`
-- `razy-current`
 - `laptop-2_5k`
 - `external-4k`
 - `docked-dual`

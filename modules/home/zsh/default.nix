@@ -38,8 +38,8 @@ in {
   programs.fzf = {
     enable = true;
     enableZshIntegration = false;
-    fileWidgetCommand = "fd --exclude .git -H --max-depth 10 -t f -t l";
-    changeDirWidgetCommand = "fd --exclude .git -H --max-depth 12 -t d";
+    fileWidget.command = "fd --exclude .git -H --max-depth 10 -t f -t l";
+    changeDirWidget.command = "fd --exclude .git -H --max-depth 12 -t d";
     defaultOptions = ["--reverse"];
   };
 
@@ -136,7 +136,7 @@ in {
             use = "pdf";
           }
           {
-            name = "*";
+            url = "*";
             use = "open";
           }
         ];

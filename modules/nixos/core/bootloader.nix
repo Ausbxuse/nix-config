@@ -1,4 +1,5 @@
 {
+  config,
   hostDef,
   lib,
   pkgs,
@@ -30,5 +31,18 @@ in {
       #efiInstallAsRemovable = true; # in case canTouchEfiVariables doesn't work for your system
       device = "nodev";
     };
+  };
+
+  # Activation mounts a fresh /run inside nixos-enter. The installer's outer
+  # /mnt/run is hidden there, and nixos-enter's tmpfiles -E skips /run.
+  # Seed dmraid's lock directory in that namespace before GRUB probes disks.
+  system.activationScripts.grubInstallerLocks = lib.mkIf config.boot.loader.grub.useOSProber {
+    deps = ["specialfs"];
+    text = ''
+      if [ "''${IN_NIXOS_ENTER:-}" = 1 ]; then
+        install -d -m 0755 /run/lock
+        install -d -m 0700 /run/lock/dmraid
+      fi
+    '';
   };
 }

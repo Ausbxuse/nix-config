@@ -3,25 +3,21 @@
   lib,
   pkgs,
   const,
-  inputs,
   ...
 }: let
-  pkgs619 = import inputs.nixpkgs619 {
-    system = pkgs.stdenv.hostPlatform.system;
-    config.allowUnfree = true;
-    config.nvidia.acceptLicense = true;
-  };
-  kernel619 = pkgs619.linux_6_19.override {
-    kernelPatches = with pkgs619.linuxKernel.kernelPatches; [
-      bridge_stp_helper
-      request_key_helper
-      {
-        name = "ptl-razer-blade16-rt721-rt1320";
-        patch = ./patches/ptl-razer-blade16-rt721-rt1320.patch;
-      }
-    ];
-  };
-  kernelPackages619 = pkgs.linuxPackagesFor kernel619;
+  razyAlsaUcmConf = pkgs.alsa-ucm-conf.overrideAttrs (oldAttrs: {
+    postInstall =
+      (oldAttrs.postInstall or "")
+      + ''
+        target="$out/share/alsa/ucm2/codecs/rt721+rt1320/init.conf"
+        if [ ! -e "$target" ]; then
+          install -Dm444 \
+            ${./alsa-ucm-conf/codecs/rt721+rt1320/init.conf} \
+            "$target"
+        fi
+      '';
+  });
+  razyAlsaUcmDir = "${razyAlsaUcmConf}/share/alsa/ucm2";
 in {
   imports = [
     ../../modules/nixos/hardware/tlp-laptop.nix
@@ -29,8 +25,18 @@ in {
     ../../modules/nixos/ollama-agent.nix
   ];
 
-  boot.kernelPackages = kernelPackages619;
+  # alsa-ucm-conf 1.2.16.1 recognizes this combined SoundWire layout but
+  # omits the initializer it tries to import, so WirePlumber falls back to
+  # the jack PCM and exposes no microphone. Remove this override once the
+  # combined initializer is available upstream.
+  environment.sessionVariables.ALSA_CONFIG_UCM2 = razyAlsaUcmDir;
+  systemd.user.services.wireplumber.environment.ALSA_CONFIG_UCM2 = razyAlsaUcmDir;
+
   services.xserver.videoDrivers = ["modesetting" "nvidia"];
+  # Firmware fan-status methods repeatedly reference missing RCFS. Keep these
+  # errors in the journal without printing them during the resume VT handoff.
+  # Critical kernel messages still reach the console; this is cosmetic only.
+  boot.consoleLogLevel = 3;
   boot.kernelParams = [
     # # This platform can hang before resume from s2idle. Prefer S3/deep sleep.
     # "mem_sleep_default=deep"
@@ -49,38 +55,21 @@ in {
   # go back to the previous driver/service behavior:
   #   hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.new_feature;
   #   hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce false;
-  hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.production;
+  hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.latest;
   hardware.nvidia.powerManagement.enable = lib.mkForce true;
   hardware.nvidia.powerManagement.finegrained = lib.mkForce true;
   hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce true;
   hardware.nvidia.dynamicBoost.enable = true;
 
-  # BIOS 2.01 still exposes broken INTC10D6 fan status devices:
-  # reading TFN1/TFN2 cur_state calls \_SB.DPTF.GFNS, which fails on
-  # \_SB.PC00.LPCB.HEC.RCFS and spams the kernel log. Keep the normal
-  # PNP0C0B fan devices bound; only hide the broken status devices from
-  # userspace pollers such as thermald.
-  systemd.services.razy-unbind-broken-acpi-fan-status = {
-    description = "Unbind broken Razer ACPI fan status devices";
-    before = ["thermald.service"];
-    requiredBy = ["thermald.service"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      driver=/sys/bus/platform/drivers/acpi-fan
-      for device in INTC10D6:00 INTC10D6:01; do
-        if [ -e "$driver/$device" ]; then
-          echo "$device" > "$driver/unbind" || true
-        fi
-      done
-    '';
-  };
+  # thermald 2.5.12 restricts Panther Lake model 0xcc to adaptive mode,
+  # but this firmware exposes no INT3400 adaptive data vault. Do not bypass
+  # that safety check into thermald's unsupported generic engine. The laptop
+  # keeps its firmware/EC controls, kernel thermal zones, intel_pstate, and TLP.
+  services.thermald.enable = lib.mkForce false;
 
   # Avoid long suspend/resume cycles when a manually-started Ollama model is
   # still resident in NVIDIA VRAM.
-  systemd.services.razy-unload-ollama-before-sleep = {
+  systemd.services.razy-unload-ollama-before-sleep = lib.mkIf config.home-manager.users.${const.username}.services.ollama-agent.enable {
     description = "Unload Ollama GPU models before system sleep";
     before = ["sleep.target"];
     wantedBy = ["sleep.target"];
@@ -115,6 +104,107 @@ in {
               --data-binary @- \
               >/dev/null \
           || true
+      done
+    '';
+  };
+
+  # GNOME 50 can retain its handle-lid-switch inhibitor after undocking,
+  # even when Mutter reports HasExternalMonitor=false. Keep lid policy in
+  # logind and the root-owned docking service below instead. Desktop apps
+  # retain their normal sleep/delay inhibitors, but cannot take over the lid.
+  environment.etc."polkit-1/rules.d/05-razy-lid.rules".text = ''
+    polkit.addRule(function(action, subject) {
+      if (subject.user === "root") return;
+
+      // Polkit also checks permissions which imply lid inhibition. Carry
+      // the denial through those checks; direct key handling stays allowed.
+      var impliedLidPermission =
+        action.lookup("polkit.result") === "no" &&
+        ["org.freedesktop.login1.inhibit-handle-power-key",
+         "org.freedesktop.login1.inhibit-handle-suspend-key",
+         "org.freedesktop.login1.inhibit-handle-reboot-key"].indexOf(action.id) !== -1;
+      if (action.id === "org.freedesktop.login1.inhibit-handle-lid-switch" ||
+          impliedLidPermission) {
+        return polkit.Result.NO;
+      }
+    });
+  '';
+  # Only the docking service should suppress lid sleep, including when
+  # logind detects a dock or multiple displays while running on battery.
+  environment.etc."systemd/logind.conf.d/50-razy-lid.conf".text = ''
+    [Login]
+    HandleLidSwitch=suspend
+    HandleLidSwitchExternalPower=suspend
+    HandleLidSwitchDocked=suspend
+  '';
+
+  # Keep a closed-lid dock usable, but only while it is actually powered and
+  # driving an external display.  The inhibitor is removed immediately when
+  # either condition goes away, preserving the normal portable lid behavior.
+  systemd.services.razy-inhibit-lid-suspend-while-docked = {
+    description = "Inhibit lid suspend while on AC with an external monitor";
+    wantedBy = ["multi-user.target"];
+    after = ["systemd-logind.service"];
+    path = with pkgs; [
+      coreutils
+      systemd
+    ];
+    serviceConfig = {
+      Type = "simple";
+      Restart = "always";
+      RestartSec = "5s";
+    };
+    script = ''
+      set -eu
+
+      ac_power_connected() {
+        for type in /sys/class/power_supply/*/type; do
+          [ -r "$type" ] || continue
+          [ "$(cat "$type")" = Mains ] || continue
+          online="$(dirname "$type")/online"
+          [ -r "$online" ] && [ "$(cat "$online")" = 1 ] && return 0
+        done
+        return 1
+      }
+
+      external_monitor_connected() {
+        for status in /sys/class/drm/*/status; do
+          [ -r "$status" ] || continue
+          connector="$(basename "$(dirname "$status")")"
+          case "$connector" in
+            *-eDP-*|*-LVDS-*|*-DSI-*) continue ;;
+          esac
+          [ "$(cat "$status")" = connected ] && return 0
+        done
+        return 1
+      }
+
+      inhibitor_pid=""
+      stop_inhibitor() {
+        if [ -n "$inhibitor_pid" ]; then
+          kill "$inhibitor_pid" 2>/dev/null || true
+          wait "$inhibitor_pid" 2>/dev/null || true
+          inhibitor_pid=""
+        fi
+      }
+      trap stop_inhibitor EXIT INT TERM
+
+      while true; do
+        if ac_power_connected && external_monitor_connected; then
+          if [ -z "$inhibitor_pid" ] || ! kill -0 "$inhibitor_pid" 2>/dev/null; then
+            inhibitor_pid=""
+            systemd-inhibit \
+              --what=handle-lid-switch \
+              --mode=block \
+              --who="razy docked lid policy" \
+              --why="AC power and an external monitor are connected" \
+              sleep infinity &
+            inhibitor_pid=$!
+          fi
+        else
+          stop_inhibitor
+        fi
+        sleep 2
       done
     '';
   };

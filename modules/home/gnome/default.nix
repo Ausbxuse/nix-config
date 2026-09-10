@@ -238,7 +238,6 @@ in {
     powertop
     xiccd
     moreutils
-    gnome-graphs
     loupe
     mpv
   ]

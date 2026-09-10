@@ -21,10 +21,6 @@
     createHome = true;
     openssh.authorizedKeys.keys = adminAccess.authorizedKeys or [];
   };
-  services.udev.packages = [pkgs.slimevr];
-  services.udev.extraRules = ''
-    SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="7690", MODE="0660", GROUP="dialout", TAG+="uaccess"
-  '';
 
   security.sudo = {
     enable = true;

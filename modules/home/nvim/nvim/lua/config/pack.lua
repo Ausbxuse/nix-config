@@ -1,4 +1,15 @@
 local M = {}
+local nix_packaged = vim.env.NVIM_NIX_PACKAGED == '1'
+
+if nix_packaged then
+  -- Home Manager's pack remains discoverable through 'packpath'. Exclude the
+  -- mutable data-site root from 'runtimepath' so parsers, queries, or plugin
+  -- files left by the former first-run installer cannot shadow Nix inputs.
+  local data_site = vim.fs.joinpath(vim.fn.stdpath 'data', 'site')
+  vim.opt.runtimepath:remove(data_site)
+  vim.opt.runtimepath:remove(vim.fs.joinpath(data_site, 'after'))
+  vim.g.nix_config_plugins_declarative = true
+end
 
 local function is_list(value)
   return type(value) == 'table' and vim.islist(value)
@@ -107,6 +118,39 @@ local function is_lazy_spec(spec)
   return spec.event ~= nil or spec.ft ~= nil or spec.cmd ~= nil or spec.keys ~= nil
 end
 
+local function nix_plugin_location(name)
+  for _, root in ipairs(vim.opt.packpath:get()) do
+    local hm_dir = vim.fs.joinpath(root, 'pack', 'hm')
+    local real_hm_dir = vim.uv.fs_realpath(hm_dir)
+    if real_hm_dir and vim.startswith(real_hm_dir, '/nix/store/') then
+      for _, kind in ipairs { 'opt', 'start' } do
+        if vim.uv.fs_stat(vim.fs.joinpath(hm_dir, kind, name)) then
+          return {
+            kind = kind,
+            -- Use the store-backed pack root while loading so an old mutable
+            -- pack with the same plugin name cannot also be sourced.
+            root = vim.fs.dirname(vim.fs.dirname(real_hm_dir)),
+          }
+        end
+      end
+    end
+  end
+end
+
+local function is_packaged(name)
+  if nix_packaged then
+    return nix_plugin_location(name) ~= nil
+  end
+
+  for _, kind in ipairs { 'start', 'opt' } do
+    local pattern = 'pack/*/' .. kind .. '/' .. name
+    if not vim.tbl_isempty(vim.fn.globpath(vim.o.packpath, pattern, false, true)) then
+      return true
+    end
+  end
+  return false
+end
+
 local function normalize_event(event)
   if event == 'VeryLazy' then
     return 'User'
@@ -148,6 +192,29 @@ function M.setup(spec_modules)
   local registered = {}
   local lazy_names = {}
 
+  local function packadd(name)
+    if not nix_packaged then
+      vim.cmd.packadd(name)
+      return
+    end
+
+    local location = nix_plugin_location(name)
+    if not location then
+      error('Declarative Neovim plugin is missing from the Nix pack: ' .. name)
+    end
+    if location.kind == 'start' then
+      return
+    end
+
+    local previous_packpath = vim.o.packpath
+    vim.o.packpath = location.root
+    local ok, err = pcall(vim.cmd.packadd, name)
+    vim.o.packpath = previous_packpath
+    if not ok then
+      error(err)
+    end
+  end
+
   local function ensure_registered(name)
     if registered[name] then
       return
@@ -156,6 +223,15 @@ function M.setup(spec_modules)
     local spec = spec_by_name[name]
     if not spec or spec.dir then
       return
+    end
+
+    if is_packaged(name) then
+      registered[name] = true
+      return
+    end
+
+    if nix_packaged then
+      error('Declarative Neovim plugin is missing from the Nix pack: ' .. name)
     end
 
     vim.pack.add({ to_pack_spec(spec) }, {
@@ -186,7 +262,7 @@ function M.setup(spec_modules)
       vim.opt.rtp:prepend(spec.dir)
     else
       ensure_registered(name)
-      vim.cmd.packadd(name)
+      packadd(name)
     end
 
     loaded[name] = true
@@ -326,9 +402,16 @@ function M.setup(spec_modules)
   })
 
   for name, spec in pairs(spec_by_name) do
-    if not lazy_names[name] and not spec.dir then
+    -- Validate every enabled spec up front in declarative mode. A missing lazy
+    -- plugin should fail during startup, not much later when its key or event
+    -- first fires.
+    if (nix_packaged or not lazy_names[name]) and not spec.dir then
       ensure_registered(name)
     end
+  end
+
+  if nix_packaged then
+    vim.g.nix_config_plugins_validated = true
   end
 
   for name, spec in pairs(spec_by_name) do

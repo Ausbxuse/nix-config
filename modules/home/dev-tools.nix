@@ -1,16 +1,10 @@
 # for language specific packages (e.g. linters, debuggers, compilers)
 {pkgs, ...}: {
   home.packages = with pkgs; [
-    #nh
-    #nvd
-    #gnumake
-    #nodePackages.npm
-    #nodePackages.pnpm
-    yarn
+    # Keep tools used by Neovim's formatters, debugger and parser tooling.
+    # Project-only toolchains belong in a dev shell; applications such as
+    # Prism Launcher retains its own required Java runtimes.
     prettier
-    shfmt
-    jdk
-    cargo
     gcc
     gdb
     alejandra

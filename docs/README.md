@@ -10,7 +10,9 @@
 
 # Why?
 
-- Simple deployment. Eventually will support offline installation for local machines, according to [this](https://www.reddit.com/r/NixOS/comments/1co9spe/is_it_possible_to_do_offline_updates_of_nixpkgs/)
+- Simple deployment. The x86_64 installer includes complete public `razy` and
+  `spacy` system closures for fast offline installation; other targets use the
+  normal network installer until explicitly added to an image.
 - Scalability. You can easily add a new configuration. Along with the first point, it makes configuring and deploying a new host easy as just running a single command.
 - Maintenance. Maintaining takes a lot of work. Nix flake with git makes it easy to roll back in case of error.
 
