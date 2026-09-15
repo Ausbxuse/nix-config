@@ -2,8 +2,47 @@ local opt = vim.opt
 local osc52 = require 'vim.ui.clipboard.osc52'
 local term_program = vim.env.TERM_PROGRAM or ''
 local current_desktop = vim.env.XDG_CURRENT_DESKTOP or ''
-local osc52_cache = {}
+local clipboard_cache = {}
 local gnome_clipboard_jobs = {}
+
+local M = {}
+
+function M.encode_clipboard(lines, regtype)
+  local text = table.concat(lines, '\n')
+  if regtype == 'V' then
+    text = text .. '\n'
+  end
+  return text
+end
+
+function M.decode_clipboard(text)
+  local regtype = 'v'
+  if text:sub(-1) == '\n' then
+    text = text:sub(1, -2)
+    regtype = 'V'
+  end
+  return { vim.split(text, '\n', { plain = true }), regtype }
+end
+
+local function remember_clipboard(register, lines, regtype)
+  local cached = {
+    lines = vim.deepcopy(lines),
+    regtype = regtype or 'v',
+  }
+  cached.text = M.encode_clipboard(cached.lines, cached.regtype)
+  clipboard_cache[register] = cached
+  return cached.text
+end
+
+local function read_clipboard(register, text)
+  local cached = clipboard_cache[register]
+  if cached and cached.text == text then
+    return { vim.deepcopy(cached.lines), cached.regtype }
+  end
+
+  clipboard_cache[register] = nil
+  return M.decode_clipboard(text)
+end
 
 local function stop_gnome_clipboard_job(register)
   local job = gnome_clipboard_jobs[register]
@@ -17,9 +56,9 @@ local function stop_gnome_clipboard_job(register)
 end
 
 local function gnome_copy(primary)
-  return function(lines)
+  return function(lines, regtype)
     local register = primary and '*' or '+'
-    local text = table.concat(lines, '\n')
+    local text = remember_clipboard(register, lines, regtype)
     local cmd = { 'nvim-gnome-clipboard', 'copy' }
     if primary then
       table.insert(cmd, 2, '--primary')
@@ -49,23 +88,19 @@ local function gnome_paste(primary)
       -- that pastes nothing.
       if not gnome_paste_warned then
         gnome_paste_warned = true
-        vim.notify(
-          'nvim-gnome-clipboard paste failed: ' .. vim.trim(result.stderr or '(no stderr)'),
-          vim.log.levels.ERROR
-        )
+        vim.notify('nvim-gnome-clipboard paste failed: ' .. vim.trim(result.stderr or '(no stderr)'), vim.log.levels.ERROR)
       end
       return {}
     end
 
-    -- Match wl-paste --no-newline: strip one trailing newline so the same
-    -- clipboard does not paste an extra blank line through this provider.
-    return vim.split((result.stdout:gsub('\n$', '')), '\n', { plain = true })
+    return read_clipboard(primary and '*' or '+', result.stdout)
   end
 end
 
 local function wl_copy(primary)
-  return function(lines)
-    local text = table.concat(lines, '\n')
+  return function(lines, regtype)
+    local register = primary and '*' or '+'
+    local text = remember_clipboard(register, lines, regtype)
     local cmd = { 'wl-copy', '--type', 'text/plain' }
     if primary then
       table.insert(cmd, 2, '--primary')
@@ -87,24 +122,21 @@ local function wl_paste(primary)
       return {}
     end
 
-    return vim.split(result.stdout, '\n', { plain = true })
+    return read_clipboard(primary and '*' or '+', result.stdout)
   end
 end
 
 local function osc52_copy_with_cache(register)
   local copy = osc52.copy(register)
   return function(lines, regtype)
-    osc52_cache[register] = {
-      lines = vim.deepcopy(lines),
-      regtype = regtype or 'v',
-    }
-    copy(lines)
+    local text = remember_clipboard(register, lines, regtype)
+    copy(vim.split(text, '\n', { plain = true }))
   end
 end
 
 local function osc52_paste_from_cache(register)
   return function()
-    local cached = osc52_cache[register]
+    local cached = clipboard_cache[register]
     if not cached then
       return { {}, 'v' }
     end
@@ -260,3 +292,5 @@ opt.iskeyword:append '-'
 for k, v in pairs(default_options) do
   vim.opt[k] = v
 end
+
+return M

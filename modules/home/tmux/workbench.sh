@@ -814,7 +814,7 @@ agent_state_from_pane() {
 sync_agent_states() {
   local session="${1:-}" stamp now last throttle window pane file state summary updated
   local current_state current_summary current_updated current_scan rescan_after needs_scan changed=0
-  local file_sig current_sig pane_state pane_summary pane_updated hook_pid
+  local file_sig current_sig pane_state pane_summary pane_updated hook_pid resume_grace
 
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
   [[ -n "$session" ]] || return 0
@@ -824,6 +824,14 @@ sync_agent_states() {
   stamp="$sync_dir/$(safe_key "$session").stamp"
   now="$(now_millis)"
   last="$(cat "$stamp" 2>/dev/null || printf '0')"
+  resume_grace="${WORKBENCH_RESUME_GRACE_MS:-0}"
+  if [[ "$last" =~ ^[0-9]+$ && "$last" -gt 0 && "$resume_grace" =~ ^[0-9]+$ && "$resume_grace" -gt 0 ]] &&
+    ((now - last > 10000)); then
+    # Status commands all become runnable together after suspend. Defer the
+    # expensive process-tree/transcript scan until the desktop has settled.
+    printf '%s\n' "$((now + resume_grace))" > "$stamp" 2>/dev/null || true
+    return 0
+  fi
   if [[ "$last" =~ ^[0-9]+$ ]] && ((now - last < throttle)); then
     return 0
   fi
@@ -855,7 +863,10 @@ sync_agent_states() {
       unset_window_option "$window" @agent-hook-pid
     fi
 
-    rescan_after="${WORKBENCH_SESSION_RESCAN_SECS:-3}"
+    # A valid cached transcript is read every status update; rediscovering it
+    # recursively walks pane descendants and every open fd, so do that much
+    # less often. Lifecycle hooks and pane scraping still update state now.
+    rescan_after="${WORKBENCH_SESSION_RESCAN_SECS:-30}"
     needs_scan=0
     if [[ -z "$file" || ! -f "$file" || ! "$current_scan" =~ ^[0-9]+$ ]]; then
       needs_scan=1
@@ -1896,7 +1907,7 @@ summary() {
 }
 
 status_sync() {
-  local session workbench_session
+  local session workbench_session lock_file
 
   session="${TMUX_WORKBENCH_SESSION:-}"
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
@@ -1907,8 +1918,20 @@ status_sync() {
     workbench_session="${workbench_session%-terms}"
   done
 
-  WORKBENCH_SYNC_INTERVAL_MS="${WORKBENCH_STATUS_SYNC_INTERVAL_MS:-1000}" \
-    sync_agent_states "$workbench_session" >/dev/null 2>&1 || true
+  ensure_sync_dir
+  lock_file="$sync_dir/$(safe_key "$workbench_session").lock"
+  if command -v flock >/dev/null 2>&1; then
+    (
+      flock -n 9 || exit 0
+      WORKBENCH_SYNC_INTERVAL_MS="${WORKBENCH_STATUS_SYNC_INTERVAL_MS:-1000}" \
+        WORKBENCH_RESUME_GRACE_MS="${WORKBENCH_STATUS_RESUME_GRACE_MS:-5000}" \
+        sync_agent_states "$workbench_session" >/dev/null 2>&1 || true
+    ) 9>"$lock_file"
+  else
+    WORKBENCH_SYNC_INTERVAL_MS="${WORKBENCH_STATUS_SYNC_INTERVAL_MS:-1000}" \
+      WORKBENCH_RESUME_GRACE_MS="${WORKBENCH_STATUS_RESUME_GRACE_MS:-5000}" \
+      sync_agent_states "$workbench_session" >/dev/null 2>&1 || true
+  fi
 }
 
 cmd="${1:-}"

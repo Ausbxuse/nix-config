@@ -213,6 +213,14 @@ function M.setup(spec_modules)
     if not ok then
       error(err)
     end
+
+    -- `packadd` appends optional packages after Neovim's built-in runtime.
+    -- Put the plugin itself first so its ftplugins run before the built-ins
+    -- claim the buffer with `b:did_ftplugin`; retain its `after/` directory at
+    -- the end of runtimepath. VimTeX otherwise never initializes for TeX files.
+    local plugin_dir = vim.fs.joinpath(location.root, 'pack', 'hm', 'opt', name)
+    vim.opt.runtimepath:remove(plugin_dir)
+    vim.opt.runtimepath:prepend(plugin_dir)
   end
 
   local function ensure_registered(name)

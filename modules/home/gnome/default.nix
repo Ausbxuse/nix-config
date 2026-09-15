@@ -6,6 +6,23 @@
   ...
 }: let
   isGenericLinux = !(hostDef.nixos.enable or false);
+  # GNOME normally disables User Themes for the unlock-dialog session mode.
+  # Re-enabling it after authentication reloads the complete Shell stylesheet
+  # and invalidates the full actor tree.  On razy that consumed about 500 ms
+  # of CPU and delayed the first desktop frame on every resume.  Snappy has
+  # unlock-dialog styling, so keep this data-only extension active while
+  # locked and avoid the redundant default-theme -> Snappy transition.
+  gnomeShellExtensionsWithPersistentUserTheme = pkgs.gnome-shell-extensions.overrideAttrs (oldAttrs: {
+    postInstall =
+      (oldAttrs.postInstall or "")
+      + ''
+        substituteInPlace \
+          "$out/share/gnome-shell/extensions/user-theme@gnome-shell-extensions.gcampax.github.com/metadata.json" \
+          --replace-fail \
+            '"shell-version": [' \
+            '"session-modes": ["user", "unlock-dialog"], "shell-version": ['
+      '';
+  });
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     astra-monitor
     blur-my-shell
@@ -242,6 +259,6 @@ in {
     mpv
   ]
   ++ lib.optionals (!isGenericLinux) [
-    gnome-shell-extensions
+    gnomeShellExtensionsWithPersistentUserTheme
   ];
 }

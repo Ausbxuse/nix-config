@@ -25,6 +25,82 @@ in {
     ../../modules/nixos/ollama-agent.nix
   ];
 
+  nixpkgs.overlays = [
+    (_final: prev: {
+      # auto-cpufreq collects fan RPM only for its status output. Its direct
+      # psutil reads bypass libsensors and repeatedly invoke the two broken BIOS
+      # fan-status methods, so omit that optional telemetry on this machine.
+      auto-cpufreq = prev.auto-cpufreq.overrideAttrs (oldAttrs: {
+        postPatch =
+          (oldAttrs.postPatch or "")
+          + ''
+            substituteInPlace auto_cpufreq/core.py \
+              --replace-fail \
+                'current_fans = list(psutil.sensors_fans())' \
+                'current_fans = []'
+            substituteInPlace auto_cpufreq/modules/system_info.py \
+              --replace-fail \
+                'fans = psutil.sensors_fans()' \
+                'fans = {}'
+          '';
+      });
+
+      # NetworkManager removes the active route immediately on PrepareForSleep,
+      # but this Wi-Fi device never reaches its final UNMANAGED state before
+      # logind's five-second deadline. Keep NetworkManager's normal teardown and
+      # wake handling, but do not hold the system-wide sleep inhibitor while its
+      # asynchronous device transition finishes. This is deliberately scoped to
+      # NetworkManager so GNOME keeps the full deadline for locking the screen.
+      networkmanager = prev.networkmanager.overrideAttrs (oldAttrs: {
+        postPatch =
+          (oldAttrs.postPatch or "")
+          + ''
+            substituteInPlace src/core/nm-power-monitor.c \
+              --replace-fail \
+                '        drop_inhibitor(self, FALSE);' \
+                '        drop_inhibitor(self, TRUE);'
+          '';
+      });
+
+      # nsncd deliberately exits when every worker is stuck, allowing systemd
+      # to replace the unhealthy proxy. Upstream then joins those same blocked
+      # workers before exiting; after resume that kept NSS unavailable for about
+      # 4.2 seconds. Preserve the fail-fast design and let process exit terminate
+      # the stale worker threads so Restart=always can restore NSS immediately.
+      nsncd = prev.nsncd.overrideAttrs (oldAttrs: {
+        postPatch =
+          (oldAttrs.postPatch or "")
+          + ''
+            substituteInPlace src/main.rs \
+              --replace-fail \
+                '            let _ = handle.join();' \
+                '            drop(handle);'
+          '';
+      });
+
+      # GNOME Shell keeps final PAM messages visible for at least two seconds
+      # and blocks the successful unlock transition until that queue drains.
+      # Preserve the delay for authentication errors, but discard stale
+      # messages once authentication has already succeeded.
+      gnome-shell = prev.gnome-shell.overrideAttrs (oldAttrs: {
+        postPatch =
+          (oldAttrs.postPatch or "")
+          + ''
+            substituteInPlace js/gdm/authPrompt.js \
+              --replace-fail \
+                '    finish(onComplete) {' \
+                '    finish(onComplete) {
+                    // PAM messages normally remain queued for at least two seconds. Once
+                    // authentication has succeeded, do not hold the unlocked desktop
+                    // behind a message that is no longer actionable.
+                    if (this.verificationStatus === AuthPromptStatus.VERIFICATION_SUCCEEDED)
+                        this._userVerifier.finishMessageQueue();
+            '
+          '';
+      });
+    })
+  ];
+
   # alsa-ucm-conf 1.2.16.1 recognizes this combined SoundWire layout but
   # omits the initializer it tries to import, so WirePlumber falls back to
   # the jack PCM and exposes no microphone. Remove this override once the
@@ -33,6 +109,14 @@ in {
   systemd.user.services.wireplumber.environment.ALSA_CONFIG_UCM2 = razyAlsaUcmDir;
 
   services.xserver.videoDrivers = ["modesetting" "nvidia"];
+  # BIOS 4.01 still exposes two INTC10D6 fan-status devices whose _FST
+  # methods call the missing HEC.RCFS method.  Keep the devices bound for
+  # firmware/kernel thermal control, but prevent libsensors clients (notably
+  # the tmux CPU status helper) from reading the broken fan1_input attributes.
+  environment.etc."sensors.d/razy-broken-acpi-fans.conf".text = ''
+    chip "acpi_fan-isa-*"
+        ignore fan1
+  '';
   # Firmware fan-status methods repeatedly reference missing RCFS. Keep these
   # errors in the journal without printing them during the resume VT handoff.
   # Critical kernel messages still reach the console; this is cosmetic only.
@@ -50,15 +134,14 @@ in {
   #   offload.enableOffloadCmd = lib.mkForce false;
   # }; # already set in nvidia.nix
 
-  # Try NVIDIA 595+ suspend notifiers to avoid the old nvidia-sleep.sh path,
-  # which switches to VT 63 during suspend/resume. Revert these two lines to
-  # go back to the previous driver/service behavior:
-  #   hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.new_feature;
-  #   hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce false;
+  # The offload GPU reaches RTD3 before sleep. Full VRAM preservation routes
+  # every suspend through NVIDIA's global notifier and adds about 2.3 seconds
+  # to resume even while the GPU is otherwise idle. Use the driver's standard
+  # PCI callbacks; keep fine-grained runtime power management for battery use.
   hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.latest;
-  hardware.nvidia.powerManagement.enable = lib.mkForce true;
+  hardware.nvidia.powerManagement.enable = lib.mkForce false;
   hardware.nvidia.powerManagement.finegrained = lib.mkForce true;
-  hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce true;
+  hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce false;
   hardware.nvidia.dynamicBoost.enable = true;
 
   # thermald 2.5.12 restricts Panther Lake model 0xcc to adaptive mode,
@@ -66,6 +149,82 @@ in {
   # that safety check into thermald's unsupported generic engine. The laptop
   # keeps its firmware/EC controls, kernel thermal zones, intel_pstate, and TLP.
   services.thermald.enable = lib.mkForce false;
+
+  # Suspend profiling shows that tlp-sleep spends about six seconds saving
+  # rfkill/drive-bay state and applying AHCI settings. This machine has only
+  # NVMe storage, no drive bay, and no WWAN, so let the kernel suspend those
+  # devices directly. The main TLP service remains enabled and continues to
+  # apply the normal AC/battery profile while the machine is awake.
+  systemd.services.tlp-sleep.wantedBy = lib.mkForce [];
+
+  # powerManagement has no commands configured on this host, but its empty
+  # sleep-actions shell was delayed alongside tlp-sleep on every battery
+  # suspend. Do not put an empty unit on the sleep transaction's critical path.
+  systemd.services.sleep-actions.wantedBy = lib.mkForce [];
+
+  # A calendar timer missed during suspend fires as soon as the machine wakes.
+  # updatedb then scanned the home files for 22 seconds alongside GNOME's unlock
+  # path. Count only awake time instead: check once the machine has been usable
+  # for 30 minutes, then after each further day of accumulated awake time.
+  services.locate.interval = lib.mkForce "never";
+  systemd.timers.update-locatedb = {
+    description = "Update locate database during established awake time";
+    wantedBy = ["timers.target"];
+    timerConfig = {
+      OnActiveSec = "30min";
+      OnUnitInactiveSec = "1d";
+      AccuracySec = "15min";
+      Persistent = false;
+    };
+  };
+  systemd.services.update-locatedb.serviceConfig = {
+    CPUSchedulingPolicy = "idle";
+    ExecCondition = pkgs.writeShellScript "razy-locatedb-update-due" ''
+      database=/var/cache/locatedb
+
+      ${pkgs.systemd}/bin/systemd-ac-power || exit 1
+      if [ -e "$database" ] \
+        && ${pkgs.findutils}/bin/find "$database" -mmin -1440 -print -quit \
+          | ${pkgs.gnugrep}/bin/grep -q .; then
+        exit 1
+      fi
+    '';
+  };
+
+  # The weekly Btrfs calendar timer has the same resume catch-up behavior. Poll
+  # for due work using awake time, then consult a persistent success marker so
+  # reboots do not cause extra scrubs. Run the multi-terabyte scan only on AC;
+  # a skipped battery check is retried after another day of accumulated uptime.
+  systemd.timers."btrfs-scrub--".timerConfig = {
+    OnCalendar = lib.mkForce [];
+    OnActiveSec = "30min";
+    OnUnitInactiveSec = "1d";
+    AccuracySec = lib.mkForce "15min";
+    Persistent = lib.mkForce false;
+  };
+  systemd.services."btrfs-scrub--".serviceConfig = {
+    CPUSchedulingPolicy = "idle";
+    ExecCondition = pkgs.writeShellScript "razy-btrfs-scrub-due" ''
+      stamp=/var/lib/razy-maintenance/btrfs-scrub-root.last-success
+
+      ${pkgs.systemd}/bin/systemd-ac-power || exit 1
+      if [ -e "$stamp" ] \
+        && ${pkgs.findutils}/bin/find "$stamp" -mmin -10080 -print -quit \
+          | ${pkgs.gnugrep}/bin/grep -q .; then
+        exit 1
+      fi
+    '';
+    ExecStopPost = pkgs.writeShellScript "razy-record-btrfs-scrub" ''
+      stamp=/var/lib/razy-maintenance/btrfs-scrub-root.last-success
+
+      if [ "$SERVICE_RESULT" = success ] \
+        && ${pkgs.btrfs-progs}/bin/btrfs scrub status / \
+          | ${pkgs.gnugrep}/bin/grep -q '^Status:[[:space:]]*finished$'; then
+        ${pkgs.coreutils}/bin/touch "$stamp"
+      fi
+      exit 0
+    '';
+  };
 
   # Avoid long suspend/resume cycles when a manually-started Ollama model is
   # still resident in NVIDIA VRAM.
@@ -236,6 +395,7 @@ in {
   ];
 
   systemd.tmpfiles.rules = [
+    "d /var/lib/razy-maintenance 0755 root root -"
     "d /var/lib/gdm/.config 0755 gdm gdm -"
   ];
 

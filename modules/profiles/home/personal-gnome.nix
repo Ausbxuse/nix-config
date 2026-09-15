@@ -29,6 +29,8 @@
           titlesec
           titling
           geometry
+          microtype
+          needspace
           nopageno
           etaremune
           tools

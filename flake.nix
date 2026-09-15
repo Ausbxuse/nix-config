@@ -278,6 +278,48 @@
             true
           )
           assert(#markdown_preview > 0, 'markdown-preview.nvim web assets were not built')
+
+          local clipboard = require 'config.options'
+          local clipboard_text = { ['+'] = "", ['*'] = "" }
+          local function clipboard_copy(register)
+            return function(lines, regtype)
+              clipboard_text[register] = clipboard.encode_clipboard(lines, regtype)
+            end
+          end
+          local function clipboard_paste(register)
+            return function()
+              return clipboard.decode_clipboard(clipboard_text[register])
+            end
+          end
+          vim.g.clipboard = {
+            name = 'nix-config-regtype-test',
+            copy = {
+              ['+'] = clipboard_copy '+',
+              ['*'] = clipboard_copy '*',
+            },
+            paste = {
+              ['+'] = clipboard_paste '+',
+              ['*'] = clipboard_paste '*',
+            },
+            cache_enabled = 0,
+          }
+          vim.cmd 'unlet! g:loaded_clipboard_provider'
+          vim.cmd 'runtime autoload/provider/clipboard.vim'
+          vim.cmd 'enew!'
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'first', 'second' })
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
+          vim.cmd 'normal! yy'
+          assert(clipboard_text['+'] == 'first\n', 'linewise yank lost its newline marker')
+          vim.cmd 'normal! p'
+          assert(
+            vim.deep_equal(vim.api.nvim_buf_get_lines(0, 0, -1, false), { 'first', 'first', 'second' }),
+            'yy followed by p did not paste a new line'
+          )
+
+          vim.cmd 'enew'
+          vim.cmd 'setfiletype tex'
+          assert(vim.b.vimtex ~= nil, 'VimTeX did not initialize for a TeX buffer')
+          assert(vim.fn.exists ':VimtexCompile' == 2, ':VimtexCompile is unavailable')
           assert(#vim.v.errmsg == 0, 'Neovim startup error: ' .. vim.v.errmsg)
         end
 

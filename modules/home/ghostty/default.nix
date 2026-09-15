@@ -14,7 +14,7 @@
     then config.lib.nixGL.wrap pkgs.ghostty
     else pkgs.ghostty;
   ghosttyPackage =
-    if useNixGL
+    if pkgs.stdenv.hostPlatform.isLinux
     then
       pkgs.symlinkJoin {
         name = "ghostty-x11-${pkgs.ghostty.version}";
@@ -23,7 +23,8 @@
         nativeBuildInputs = [pkgs.makeWrapper];
         postBuild = ''
           # GTK/Wayland exits on EAGAIN while Ghostty processes Kitty image
-          # previews. XWayland avoids that fatal display-flush path.
+          # previews. XWayland avoids that fatal display-flush path on both
+          # NixOS and generic Linux hosts.
           wrapProgram "$out/bin/ghostty" --set GDK_BACKEND x11
         '';
       }
