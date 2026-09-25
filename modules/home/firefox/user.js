@@ -63,11 +63,11 @@ user_pref("dom.security.sanitizer.enabled", true);
 user_pref("browser.contentblocking.category", "strict");
 user_pref(
   "urlclassifier.trackingSkipURLs",
-  "*.reddit.com, *.twitter.com, *.twimg.com, *.tiktok.com",
+  "*.reddit.com, *.twitter.com, *.twimg.com, *.tiktok.com"
 );
 user_pref(
   "urlclassifier.features.socialtracking.skipURLs",
-  "*.instagram.com, *.twitter.com, *.twimg.com",
+  "*.instagram.com, *.twitter.com, *.twimg.com"
 );
 user_pref("network.cookie.sameSite.noneRequiresSecure", true);
 user_pref("browser.download.start_downloads_in_tmp_dir", true);
@@ -153,7 +153,7 @@ user_pref("permissions.default.desktop-notification", 2);
 user_pref("permissions.default.geo", 2);
 user_pref(
   "geo.provider.network.url",
-  "https://location.services.mozilla.com/v1/geolocate?key=%MOZILLA_API_KEY%",
+  "https://location.services.mozilla.com/v1/geolocate?key=%MOZILLA_API_KEY%"
 );
 user_pref("permissions.manager.defaultsUrl", "");
 user_pref("webchannel.allowObject.urlWhitelist", "");
@@ -202,11 +202,11 @@ user_pref("browser.discovery.enabled", false);
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref(
   "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons",
-  false,
+  false
 );
 user_pref(
   "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features",
-  false,
+  false
 );
 user_pref("browser.preferences.moreFromMozilla", false);
 user_pref("browser.tabs.tabmanager.enabled", false);
