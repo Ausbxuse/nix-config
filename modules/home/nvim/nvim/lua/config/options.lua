@@ -7,9 +7,35 @@ local gnome_clipboard_jobs = {}
 
 local M = {}
 
+local function refresh_desktop_environment()
+  if not vim.env.TMUX_PANE or vim.env.SSH_CONNECTION or vim.fn.executable 'tmux' ~= 1 then
+    return
+  end
+  if vim.env.DISPLAY and vim.env.XDG_CURRENT_DESKTOP then
+    return
+  end
+
+  local result = vim.system({ 'tmux', 'show-environment', '-t', vim.env.TMUX_PANE }, { text = true }):wait(1000)
+  if result.code ~= 0 or not result.stdout then
+    return
+  end
+  for line in result.stdout:gmatch '[^\n]+' do
+    local name, value = line:match '^([%w_]+)=(.*)$'
+    if name and not vim.env[name] and vim.tbl_contains({
+      'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_CURRENT_DESKTOP', 'XAUTHORITY', 'DBUS_SESSION_BUS_ADDRESS',
+    }, name) then
+      vim.env[name] = value
+    end
+  end
+end
+
+refresh_desktop_environment()
+current_desktop = vim.env.XDG_CURRENT_DESKTOP or ''
+
 function M.encode_clipboard(lines, regtype)
   local text = table.concat(lines, '\n')
-  if regtype == 'V' then
+  -- Neovim's provider already appends an empty line to linewise selections.
+  if regtype == 'V' and lines[#lines] ~= '' then
     text = text .. '\n'
   end
   return text
@@ -57,6 +83,7 @@ end
 
 local function gnome_copy(primary)
   return function(lines, regtype)
+    refresh_desktop_environment()
     local register = primary and '*' or '+'
     local text = remember_clipboard(register, lines, regtype)
     local cmd = { 'nvim-gnome-clipboard', 'copy' }
@@ -75,6 +102,7 @@ local gnome_paste_warned = false
 
 local function gnome_paste(primary)
   return function()
+    refresh_desktop_environment()
     local cmd = { 'nvim-gnome-clipboard', 'paste' }
     if primary then
       table.insert(cmd, 2, '--primary')
@@ -161,18 +189,22 @@ local function osc52_clipboard(name)
 end
 
 local function tmux_clipboard()
-  local paste_plus = osc52_paste_from_cache '+'
-  local paste_star = osc52_paste_from_cache '*'
-
   -- OSC 52 is write-only from Neovim's perspective.  Use the local desktop
   -- clipboard for reads when Neovim is running inside tmux, while retaining
   -- OSC 52 for writes so tmux can forward yanks to the terminal client.
-  if current_desktop:match 'GNOME' and vim.fn.executable 'nvim-gnome-clipboard' == 1 then
-    paste_plus = gnome_paste(false)
-    paste_star = gnome_paste(true)
-  elseif vim.fn.executable 'wl-paste' == 1 then
-    paste_plus = wl_paste(false)
-    paste_star = wl_paste(true)
+  local function paste(primary)
+    return function()
+      -- Resolve this at paste time too: a restored editor can start before the
+      -- first desktop client attaches. Never fall back to wl-paste on GNOME.
+      refresh_desktop_environment()
+      local desktop = vim.env.XDG_CURRENT_DESKTOP or ''
+      if vim.env.DISPLAY and vim.fn.executable 'nvim-gnome-clipboard' == 1 then
+        return gnome_paste(primary)()
+      elseif vim.env.WAYLAND_DISPLAY and desktop ~= '' and not desktop:match 'GNOME' and vim.fn.executable 'wl-paste' == 1 then
+        return wl_paste(primary)()
+      end
+      return osc52_paste_from_cache(primary and '*' or '+')()
+    end
   end
 
   return {
@@ -182,8 +214,8 @@ local function tmux_clipboard()
       ['*'] = osc52_copy_with_cache '*',
     },
     paste = {
-      ['+'] = paste_plus,
-      ['*'] = paste_star,
+      ['+'] = paste(false),
+      ['*'] = paste(true),
     },
     cache_enabled = 0,
   }

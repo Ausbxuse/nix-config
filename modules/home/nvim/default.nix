@@ -182,7 +182,8 @@
       install -Dm644 ${./gnome-clipboard.js} $out/share/nvim-gnome-clipboard/gnome-clipboard.js
 
       makeWrapper ${pkgs.gjs}/bin/gjs $out/bin/nvim-gnome-clipboard \
-        --add-flags $out/share/nvim-gnome-clipboard/gnome-clipboard.js
+        --add-flags $out/share/nvim-gnome-clipboard/gnome-clipboard.js \
+        --set GDK_BACKEND x11
     '';
   };
   nvimSpellDir = "${config.xdg.stateHome}/nvim/spell";

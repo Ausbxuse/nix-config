@@ -538,10 +538,11 @@ descendant_pids() {
 }
 
 codex_session_for_pane() {
-  local pane="$1" root_pid pid fd target best="" best_mtime=0 mtime
+  local pane="$1" root_pid pid fd target best="" best_mtime=0 mtime preferred
 
   root_pid="$("$tmux_bin" display -p -t "$pane" '#{pane_pid}' 2>/dev/null || true)"
   [[ -n "$root_pid" ]] || return 0
+  preferred="$(window_option "$pane" @agent-session-file)"
 
   while IFS= read -r pid; do
     [[ -n "$pid" ]] || continue
@@ -550,6 +551,12 @@ codex_session_for_pane() {
       target="$(readlink "$fd" 2>/dev/null || true)"
       case "$target" in
         "$HOME"/.codex/sessions/*.jsonl)
+          # A shared app-server can hold transcripts for several panes. Keep
+          # this pane's known session instead of taking another pane's newest.
+          if [[ "$target" == "$preferred" ]]; then
+            printf '%s\n' "$target"
+            return 0
+          fi
           mtime="$(stat -c %Y "$target" 2>/dev/null || printf '0')"
           if ((mtime >= best_mtime)); then
             best="$target"
@@ -560,7 +567,7 @@ codex_session_for_pane() {
     done
   done < <(descendant_pids "$root_pid")
 
-  [[ -n "$best" ]] && printf '%s\n' "$best"
+  [[ -z "$best" ]] || printf '%s\n' "$best"
 }
 
 codex_state_from_session() {
@@ -627,22 +634,20 @@ codex_state_from_pane() {
   local pane="$1" capture lowered updated
 
   [[ -n "$pane" ]] || return 0
-  capture="$("$tmux_bin" capture-pane -pJ -S -40 -t "$pane" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 32 || true)"
+  # Only inspect the visible UI. Tool output and scrollback often quote these
+  # same phrases, so an unanchored match can keep a finished turn "running".
+  capture="$("$tmux_bin" capture-pane -pJ -t "$pane" 2>/dev/null | tail -n 24 || true)"
   [[ -n "$capture" ]] || return 0
 
   updated="$(now_epoch)"
   lowered="${capture,,}"
-  case "$lowered" in
-    *"approval requested:"* | *"needs your approval"* | *"do you want to approve"* | *"would you like to run"* | *"enter to submit answer"* | *"enter to submit all"*)
-      printf 'waiting\tneeds attention\t%s\n' "$updated"
-      ;;
-    *"esc to interrupt"* | *"working ("*)
-      printf 'running\tworking\t%s\n' "$updated"
-      ;;
-    *"› "*)
-      printf 'idle\tready\t%s\n' "$updated"
-      ;;
-  esac
+  if printf '%s\n' "$lowered" | grep -qE '^[[:space:]]*(› )?(approval requested:|needs your approval|do you want to approve|would you like to (run|apply))|^[[:space:]]*.*enter to submit (answer|all)'; then
+    printf 'waiting\tneeds attention\t%s\n' "$updated"
+  elif printf '%s\n' "$lowered" | grep -qE '^[[:space:]]*• .*esc to interrupt'; then
+    printf 'running\tworking\t%s\n' "$updated"
+  elif printf '%s\n' "$lowered" | grep -qE '^[[:space:]]*› '; then
+    printf 'idle\tready\t%s\n' "$updated"
+  fi
 }
 
 claude_projects_dir() {
@@ -814,7 +819,7 @@ agent_state_from_pane() {
 sync_agent_states() {
   local session="${1:-}" stamp now last throttle window pane file state summary updated
   local current_state current_summary current_updated current_scan rescan_after needs_scan changed=0
-  local file_sig current_sig pane_state pane_summary pane_updated hook_pid resume_grace
+  local file_sig current_sig pane_state pane_summary pane_updated hook_pid resume_grace scanned_file
 
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
   [[ -n "$session" ]] || return 0
@@ -837,7 +842,9 @@ sync_agent_states() {
   fi
   printf '%s\n' "$now" > "$stamp" 2>/dev/null || true
 
-  while IFS=$'\t' read -r window pane current_state current_summary current_updated file current_scan current_sig; do
+  # A non-whitespace separator preserves empty options, including a missing
+  # summary/session file; Bash's tab IFS would shift all the following fields.
+  while IFS=$'\037' read -r window pane current_state current_summary current_updated file current_scan current_sig; do
     [[ -n "$window" && -n "$pane" ]] || continue
     pane_exists "$pane" || continue
 
@@ -874,13 +881,17 @@ sync_agent_states() {
       needs_scan=1
     fi
     if ((needs_scan)); then
-      file="$(agent_session_for_pane "$pane" || true)"
-      [[ -n "$file" ]] && set_window_option "$window" @agent-session-scan "$((now / 1000))"
+      scanned_file="$(agent_session_for_pane "$pane" || true)"
+      # Some Codex clients use an app-server outside the pane's process tree.
+      # A failed fd lookup does not invalidate their cached transcript.
+      [[ -z "$scanned_file" ]] || file="$scanned_file"
+      [[ -f "$file" ]] || file=""
+      set_window_option "$window" @agent-session-scan "$((now / 1000))"
     fi
     if [[ -z "$file" ]]; then
       state=""; summary=""; updated=""
       IFS=$'\t' read -r state summary updated < <(agent_state_from_pane "$pane") || true
-      if [[ -n "$state" && "$state" != "$current_state" ]]; then
+      if [[ -n "$state" && "$state" != "$current_state" && ! ( "$state" == idle && "$current_state" =~ ^(done|blocked)$ ) ]]; then
         if [[ "$state" == waiting || "$current_state" == running || "$current_state" == done || "$current_state" == idle || -z "$current_state" || "$state" == running && "$current_state" == waiting ]]; then
           set_agent_state_options "$window" "$state" "$summary" "$updated"
           changed=1
@@ -897,7 +908,8 @@ sync_agent_states() {
         {
           [[ "$state" == waiting ]] ||
             [[ "$state" == running && "$current_state" =~ ^(done|idle|ready)$ ]] ||
-            [[ "$state" == running && "$current_state" == waiting && "$current_summary" == "needs attention" ]]
+            [[ "$state" == running && "$current_state" == waiting && "$current_summary" == "needs attention" ]] ||
+            [[ "$state" == idle && "$current_state" =~ ^(running|waiting)$ ]]
         }; then
         set_agent_state_options "$window" "$state" "$summary" "$updated"
         changed=1
@@ -931,7 +943,7 @@ sync_agent_states() {
         ;;
     esac
     changed=1
-  done < <("$tmux_bin" list-windows -t "$session" -F '#{window_id}	#{@agent-pane}	#{@agent-state}	#{@agent-summary}	#{@agent-updated}	#{@agent-session-file}	#{@agent-session-scan}	#{@agent-session-sig}' 2>/dev/null || true)
+  done < <("$tmux_bin" list-windows -t "$session" -F $'#{window_id}\037#{@agent-pane}\037#{@agent-state}\037#{@agent-summary}\037#{@agent-updated}\037#{@agent-session-file}\037#{@agent-session-scan}\037#{@agent-session-sig}' 2>/dev/null || true)
 
   if ((changed)); then
     bump_event "$session"

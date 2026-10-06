@@ -71,6 +71,26 @@ fi
 if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] && command -v tmux >/dev/null 2>&1; then
   autoload -Uz add-zsh-hook
 
+  __tmux_import_desktop_environment() {
+    # Restored shells predate GNOME's environment import. Attaching a local
+    # terminal updates tmux, but cannot change those shells' environment.
+    [[ -z ${SSH_CONNECTION:-} ]] || return 0
+    [[ -z ${DISPLAY:-} || -z ${XDG_CURRENT_DESKTOP:-} ]] || return 0
+    local entry name
+    while IFS= read -r entry; do
+      [[ "$entry" == *=* ]] || continue
+      name="${entry%%=*}"
+      case "$name" in
+        DISPLAY|WAYLAND_DISPLAY|XDG_CURRENT_DESKTOP|XDG_SESSION_DESKTOP|XDG_SESSION_TYPE|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS)
+          [[ -n ${(P)name} ]] || export "$entry"
+          ;;
+      esac
+    done < <(tmux show-environment -t "$TMUX_PANE" 2>/dev/null)
+  }
+
+  __tmux_import_desktop_environment
+  add-zsh-hook preexec __tmux_import_desktop_environment
+
   __tmux_cmdlog_base="${XDG_STATE_HOME:-$HOME/.local/state}/tmux-command-log"
   __tmux_cmdlog_dir=""
   __tmux_cmdlog_file=""

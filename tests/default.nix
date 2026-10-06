@@ -471,6 +471,24 @@
 in {
   inherit shellcheck;
 
+  "desktop-integration" =
+    pkgs.runCommand "desktop-integration-test" {
+      nativeBuildInputs = with pkgs; [
+        bash
+        coreutils
+        gnugrep
+        gnused
+        neovim-unwrapped
+        procps
+        python3
+        tmux
+        zsh
+      ];
+    } ''
+      python ${repoSource}/tests/test-desktop-integration.py
+      touch "$out"
+    '';
+
   "installer-profile" = installerProfileTest;
   "installer-prefetch" = pkgs.runCommand "installer-prefetch-test" {
     nativeBuildInputs = [pkgs.python3];
