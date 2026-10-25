@@ -1,0 +1,7 @@
+{
+  "prompt_diff_redraw": {
+    "original": "Also, when I asked my supervisor (give her a beautiful acronym name that makes sense), she can't go smart in coordinating agents How are you today?\nSupervisor\n03:13\nI'm doing well, thanks for asking. How are you today?\nYou\n03:13\nCan you make the speech recognition faster?\nSupervisor\n03:13\nI can't change the speech recognition settings from this conversation. I also don't have timing data to tell what's causing the delay.\nYou\n03:13\nYou could just allocate an agent to do that.",
+    "visible_prompt": "Also, when I asked my supervisor (give her a beautiful acronym name that makes sense), she can't go smart in coordinating agents How are you today? Supervisor 03:13 I'm doing well, thanks for asking. How are you today? You 03:13 Can you make the speech recognition fast…",
+    "capture": "› Also, when I asked my supervisor (give her a beautiful acronym name that makes sense), she can't go smart in coordinating agents How are you today? Supervisor 03:13 I'm doing well, thanks for asking. How are you today? You 03:13 Can you make the speech recognition fast…\n    1 +\"\"\"Bound a supervisor's proposed work to the user's current request.\"\"\"\n    2 +import re\n    3 +\n  └ pkgs/agent-hub/default.nix (+1 -0)\n    69 + ./coordination.py\n  └ pkgs/agent-hub/supervisor-schema.json (+5 -2)\n    4 - \"required\": [\"reply\", \"actions\"],\n    4 + \"required\": [\"reply\", \"request_intent\", \"actions\"],\n• Ran python -m unittest\n  └ All checks passed\n• Working (7m 27s • esc to interrupt)"
+  }
+}

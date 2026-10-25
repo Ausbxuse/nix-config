@@ -1,0 +1,97 @@
+[
+  {
+    "name": "repeated weekly warnings and right aligned quota footer",
+    "capture": "• The traces are saved.\n⚠ Heads up, you have less than 25% of your weekly limit left. Run /status for a breakdown.\n⚠ Heads up, you have less than 10% of your weekly limit left. Run /status for a breakdown.\n⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n                                             ⚠ weekly limit: only <1% left · resets at 8:58 PM on 17 Oct · /status\n› Next instruction",
+    "expected": "• The traces are saved.\n› Next instruction"
+  },
+  {
+    "name": "Claude wrapped recap",
+    "capture": "● Freed 12 GB.\n※ recap: The cleanup is done.\n  Wrapped duplicate text.\n  (disable recaps in /config)\n\n❯ Check the disk",
+    "expected": "● Freed 12 GB.\n\n❯ Check the disk"
+  },
+  {
+    "name": "Codex wrapped recap does not attach to a reply",
+    "capture": "• Both traces passed.\n\n  ↳ Recap: Both traces passed.\n           The files are saved.\n\n• Ran check\n  └ ok\n• Ready for review.",
+    "expected": "• Both traces passed.\n\n\n• Ran check\n  └ ok\n• Ready for review."
+  },
+  {
+    "name": "fresh capture starting inside a known recap header",
+    "capture": "  ↳ Recap: Duplicate terminal text.\n           Its wrapped continuation.\n\n› ",
+    "expected": "\n› "
+  },
+  {
+    "name": "actual quota exhaustion and capacity errors remain",
+    "capture": "■ You've hit your usage limit. Try again later.\n■ Selected model is at capacity. Please try a different model.\n⚠ Disk almost full.\n• Heads up, the weekly study failed.\n• Recap: The baseline failed.",
+    "expected": "■ You've hit your usage limit. Try again later.\n■ Selected model is at capacity. Please try a different model.\n⚠ Disk almost full.\n• Heads up, the weekly study failed.\n• Recap: The baseline failed."
+  },
+  {
+    "name": "fenced examples and indented tool output remain",
+    "capture": "• Example:\n  ```text\n  ※ recap: example\n  ⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n  ```\n• Ran cat log\n  └ Output:\n    ※ recap: saved log entry\n    ⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n  ↳ Recap: tool output",
+    "expected": "• Example:\n  ```text\n  ※ recap: example\n  ⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n  ```\n• Ran cat log\n  └ Output:\n    ※ recap: saved log entry\n    ⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n  ↳ Recap: tool output"
+  },
+  {
+    "name": "user examples and explicitly queued recap requests remain",
+    "capture": "› Explain this:\n  ↳ Recap: copied example\n• Queued follow-up inputs\n  ↳ Recap: Summarize the study\n  ↳ Keep the plots\n  shift+↑ edit last queued message",
+    "expected": "› Explain this:\n  ↳ Recap: copied example\n• Queued follow-up inputs\n  ↳ Recap: Summarize the study\n  ↳ Keep the plots\n  shift+↑ edit last queued message"
+  },
+  {
+    "name": "an unfinished example fence ends at a real terminal notice",
+    "capture": "• Example:\n  ```text\n  sample\n※ recap: duplicate summary\n  wrapped line\n• The result is ready.",
+    "expected": "• Example:\n  ```text\n  sample\n• The result is ready."
+  },
+  {
+    "name": "Claude custom status and multiline draft stay below the editor boundary",
+    "capture": "● The actual response.\n\n✢ Crafting… (6m 40s · ↓ 31.2k tokens · thought for 1s)\n\n────────────────────────────────\n❯ An unsent terminal draft\n  on a second line\n────────────────────────────────\n  study · Opus 5.5 M · 5h ▏    4% 3h45m · wk ▋    16/     0% 4d19h\n  -- INSERT -- ⏵⏵ auto mode on · 2 shells · ← for agents",
+    "expected": "● The actual response."
+  },
+  {
+    "name": "Claude footer can contain arbitrary custom data without becoming prose",
+    "capture": "● The actual response.\n────────────────────────────────\n❯ \n────────────────────────────────\n  a project name · a model name\n  build #18 · PR status changed · used 99%\n  custom footer with no recognizable keywords",
+    "expected": "● The actual response."
+  },
+  {
+    "name": "dated completion rows and decorated conversation recap are terminal metadata",
+    "capture": "• The actual result.\n\n  done Oct 10 at 6:05 PM\n\n─ Conversation recap ─────────────────────\n\n  Automatically generated summary.\n  A wrapped continuation.\n\n  Another paragraph in the recap.\n\n› Next task\n• The next actual result.",
+    "expected": "• The actual result.\n\n\n\n\n\n› Next task\n• The next actual result."
+  },
+  {
+    "name": "completion verbs and work clocks are metadata across both runtimes",
+    "capture": "● Saved the trace.\n✻ Brewed for 2m 9s · done Oct 10 at 6:05 PM\n• Saved another trace.\nWorked for 10s • 3:25 PM\n  done yesterday at 15:25\n› ",
+    "expected": "● Saved the trace.\n• Saved another trace.\n› "
+  },
+  {
+    "name": "quoted terminal frames remain literal inside a code fence",
+    "capture": "● Example:\n```text\n────────────────────────────────\n❯\n────────────────────────────────\n  a custom status line\n─ Conversation recap ─────────────────────\n  done Oct 10 at 6:05 PM\n✢ Crafting… (6m 40s · ↓ 31.2k tokens · thought for 1s)\n```\n  This explanation after the example must remain visible.",
+    "expected": "● Example:\n```text\n────────────────────────────────\n❯\n────────────────────────────────\n  a custom status line\n─ Conversation recap ─────────────────────\n  done Oct 10 at 6:05 PM\n✢ Crafting… (6m 40s · ↓ 31.2k tokens · thought for 1s)\n```\n  This explanation after the example must remain visible."
+  },
+  {
+    "name": "ordinary recap prose and literal user or tool timestamps are content",
+    "capture": "• Conversation recap\n  The meeting is done Oct 10 at 6:05 PM.\n› Explain the line:\n  done Oct 10 at 6:05 PM\n• Ran cat log\n  └ stdout\n  done Oct 10 at 6:05 PM\n  ✻ Brewed for 2m 9s",
+    "expected": "• Conversation recap\n  The meeting is done Oct 10 at 6:05 PM.\n› Explain the line:\n  done Oct 10 at 6:05 PM\n• Ran cat log\n  └ stdout\n  done Oct 10 at 6:05 PM\n  ✻ Brewed for 2m 9s"
+  },
+  {
+    "name": "code fences in a custom footer remain terminal UI",
+    "capture": "● The actual response.\n────────────────────────────────\n❯\n────────────────────────────────\n```text\ncustom footer content\n```",
+    "expected": "● The actual response."
+  },
+  {
+    "name": "Codex footer shortcuts stay outside the active draft",
+    "capture": "• Checking the build.\n› Keep the current draft\n\n  GPT-6.1-Sol low · /tmp/project · weekly 62% left\n  tab to queue message\n  A new terminal shortcut\n```text\n  More footer help\n```",
+    "expected": "• Checking the build.\n› Keep the current draft"
+  },
+  {
+    "name": "literal queue shortcut text in messages and tool output remains content",
+    "capture": "› Explain this hint:\n  tab to queue message\n• The hint is `tab to queue message`.\n• Ran cat hints\n  └ tab to queue message\n› Keep this phrase: tab to queue message",
+    "expected": "› Explain this hint:\n  tab to queue message\n• The hint is `tab to queue message`.\n• Ran cat hints\n  └ tab to queue message\n› Keep this phrase: tab to queue message"
+  },
+  {
+    "name": "a quoted Codex footer remains literal inside a code fence",
+    "capture": "• An example:\n```text\n› A draft\n  gpt-6.1-sol low · /tmp/project · 50% context left\n  tab to queue message\n```\nThis explanation must remain visible.",
+    "expected": "• An example:\n```text\n› A draft\n  gpt-6.1-sol low · /tmp/project · 50% context left\n  tab to queue message\n```\nThis explanation must remain visible."
+  },
+  {
+    "name": "an old Codex footer cannot hide later conversation turns",
+    "capture": "› A draft\n  gpt-6.1-sol low · /tmp/project · 50% context left\n  tab to queue message\n• The next real reply.",
+    "expected": "› A draft\n  gpt-6.1-sol low · /tmp/project · 50% context left\n  tab to queue message\n• The next real reply."
+  }
+]

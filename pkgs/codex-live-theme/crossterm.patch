@@ -1,0 +1,103 @@
+diff --git a/src/event.rs b/src/event.rs
+index 9700858..f388ff9 100644
+--- a/src/event.rs
++++ b/src/event.rs
+@@ -580,6 +580,12 @@ pub enum Event {
+     FocusGained,
+     /// The terminal lost focus
+     FocusLost,
++    /// An OSC 10/11 default-color response received by the asynchronous event stream.
++    ///
++    /// Keep these in the same queue as keyboard and paste events so applications can
++    /// refresh their palette without stopping the reader or consuming user input.
++    #[cfg(unix)]
++    TerminalColor { slot: u8, rgb: Option<(u8, u8, u8)> },
+     /// A single key event with additional pressed modifiers.
+     Key(KeyEvent),
+     /// A single mouse event with additional pressed modifiers.
+diff --git a/src/event/filter.rs b/src/event/filter.rs
+index be1111b..733da77 100644
+--- a/src/event/filter.rs
++++ b/src/event/filter.rs
+@@ -77,6 +77,26 @@ impl Filter for EventFilter {
+     }
+ }
+ 
++/// The asynchronous reader also delivers default-color replies to its consumer.
++/// Synchronous color-query helpers keep using their existing slot-specific filter.
++#[cfg(feature = "event-stream")]
++#[derive(Debug, Clone)]
++pub(crate) struct StreamEventFilter;
++
++#[cfg(feature = "event-stream")]
++impl Filter for StreamEventFilter {
++    fn eval(&self, event: &InternalEvent) -> bool {
++        if EventFilter.eval(event) {
++            return true;
++        }
++        #[cfg(unix)]
++        if matches!(event, InternalEvent::OscColor { slot: 10 | 11, .. }) {
++            return true;
++        }
++        false
++    }
++}
++
+ #[cfg(test)]
+ #[cfg(unix)]
+ mod tests {
+@@ -144,4 +164,26 @@ mod tests {
+         assert!(InternalEventFilter.eval(&InternalEvent::Event(Event::Resize(10, 10))));
+         assert!(InternalEventFilter.eval(&InternalEvent::CursorPosition(0, 0)));
+     }
++    #[cfg(feature = "event-stream")]
++    #[test]
++    fn stream_filter_delivers_default_colors_and_user_input() {
++        use super::StreamEventFilter;
++        use crate::event::{KeyCode, KeyEvent, KeyModifiers};
++        let key = InternalEvent::Event(Event::Key(KeyEvent::new(
++            KeyCode::Char('x'),
++            KeyModifiers::NONE,
++        )));
++        let color = InternalEvent::OscColor {
++            slot: 11,
++            payload: OscColorPayload::Rgb {
++                r: 238,
++                g: 240,
++                b: 228,
++            },
++        };
++        assert!(StreamEventFilter.eval(&key));
++        assert!(StreamEventFilter.eval(&color));
++        assert!(!EventFilter.eval(&color));
++        assert!(!StreamEventFilter.eval(&InternalEvent::CursorPosition(2, 3)));
++    }
+ }
+diff --git a/src/event/stream.rs b/src/event/stream.rs
+index 6e4d1bf..cd8c9b9 100644
+--- a/src/event/stream.rs
++++ b/src/event/stream.rs
+@@ -15,7 +15,7 @@ use futures_core::stream::Stream;
+ 
+ use crate::event::{
+     Event,
+-    filter::EventFilter,
++    filter::StreamEventFilter as EventFilter,
+     internal::{self, InternalEvent},
+     sys::Waker,
+ };
+@@ -107,6 +107,14 @@ impl Stream for EventStream {
+         match internal::poll(Some(Duration::from_secs(0)), &EventFilter) {
+             Ok(true) => match internal::read(&EventFilter) {
+                 Ok(InternalEvent::Event(event)) => Poll::Ready(Some(Ok(event))),
++                #[cfg(unix)]
++                Ok(InternalEvent::OscColor { slot, payload }) => {
++                    let rgb = match payload {
++                        crate::event::internal::OscColorPayload::Rgb { r, g, b } => Some((r, g, b)),
++                        crate::event::internal::OscColorPayload::Unrecognized(_) => None,
++                    };
++                    Poll::Ready(Some(Ok(Event::TerminalColor { slot, rgb })))
++                }
+                 Err(e) => Poll::Ready(Some(Err(e))),
+                 #[cfg(unix)]
+                 _ => unreachable!(),

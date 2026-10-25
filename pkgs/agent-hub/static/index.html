@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en" data-motion="full" data-starting>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e2233">
+  <title>Agent Hub</title>
+  <!-- Keep the first paint stable even while styles, scripts or hosts load. -->
+  <style>
+    html[data-starting],html[data-starting] body{margin:0;background:var(--bg,#1e2233)}
+    html[data-starting]{overflow:hidden}
+    html[data-starting] .app-shell{visibility:hidden!important}
+    #startup{position:fixed;inset:0;z-index:1000;display:grid;place-content:center;justify-items:center;gap:16px;padding:24px;box-sizing:border-box;background:var(--bg,#1e2233);color:var(--muted,#adb1c7);font:400 .8125rem/1.5 var(--ui,ui-monospace,monospace);text-align:center;opacity:1;transition:opacity .16s ease}
+    #startup[hidden]{display:none}
+    #startup[data-ready]{opacity:0;pointer-events:none}
+    #startup p{margin:0;max-width:30ch;font:inherit}
+    #startup a{display:inline-grid;place-items:center;min-height:44px;padding:0 14px;border-radius:10px;background:var(--surface,#252939);color:var(--cyan,#b4befe);text-decoration:none}
+    #startup a[hidden]{display:none}
+    .loading-dots{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:22px;color:var(--cyan,#b4befe)}
+    .loading-dots i{display:block;width:6px;height:6px;border-radius:50%;background:currentColor;animation:loading-breathe 1.35s ease-in-out infinite}
+    .loading-dots i:nth-child(2){animation-delay:.15s}.loading-dots i:nth-child(3){animation-delay:.3s}
+    .reader-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:96px;color:var(--muted);font-size:var(--type-caption,.75rem)}
+    @keyframes loading-breathe{0%,70%,100%{opacity:.3;transform:translateY(0) scale(.85)}35%{opacity:1;transform:translateY(-2px) scale(1)}}
+    :root[data-motion=reduce] .loading-dots i{animation:none;opacity:.6}
+    :root[data-motion=reduce] #startup{transition:none}
+    @media(prefers-reduced-motion:reduce){:root:not([data-motion=full]) .loading-dots i{animation:none;opacity:.6}:root:not([data-motion=full]) #startup{transition:none}}
+  </style>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/assets/MapleMono-UI-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/appearance.js"></script>
+  <script src="/startup.js" defer></script>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/vendor/katex.min.css">
+  <script src="/vendor/markdown.js" defer></script>
+  <script src="/message-content.js" defer></script>
+  <script src="/history.js" defer></script>
+  <script src="/reader.js" defer></script>
+  <script src="/terminal.js" defer></script>
+  <script src="/activity.js" defer></script>
+  <script src="/usage.js" defer></script>
+  <script src="/routing.js" defer></script>
+  <script src="/voice.js" defer></script>
+  <script src="/updates.js" defer></script>
+  <script src="/live.js" defer></script>
+  <script src="/reading.js" defer></script>
+  <script src="/drafts.js" defer></script>
+  <script src="/brief.js" defer></script>
+  <script src="/delivery.js" defer></script>
+  <script src="/queue.js" defer></script>
+  <script src="/approvals.js" defer></script>
+  <script src="/attention.js" defer></script>
+  <script src="/images.js" defer></script>
+  <script src="/push.js" defer></script>
+  <script src="/app.js" defer></script>
+  <script src="/focus.js" defer></script>
+  <script src="/models.js" defer></script>
+  <script src="/switch.js" defer></script>
+  <script src="/continuity.js" defer></script>
+  <script src="/backup.js" defer></script>
+  <script src="/assistant.js" defer></script>
+  <script src="/archive.js" defer></script>
+  <script src="/research.js" defer></script>
+  <link rel="stylesheet" href="/focus.css">
+  <link rel="stylesheet" href="/research.css">
+  <link rel="stylesheet" href="/appearance.css">
+</head>
+<body>
+  <section id="startup" aria-label="Loading workspace">
+    <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <p id="startup-status" role="status">Opening workspace…</p>
+    <a id="startup-retry" href="" hidden>Reload</a>
+    <noscript><style>#startup-status,#startup>.loading-dots{display:none}</style>Enable JavaScript to open Agent Hub.</noscript>
+  </section>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/></symbol>
+    <symbol id="i-agents" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="m7 8 3 3-3 3m6 0h4M8 22h8m-4-4v4"/></symbol>
+    <symbol id="i-attention" viewBox="0 0 24 24"><path d="M10.3 3.8 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="m3 3 18 18M6 6a6 6 0 0 0 0 2c0 7-3 7-3 9h14M10 21h4M10 2a6 6 0 0 1 8 6c0 2 .2 3 .6 4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5v15M12 5C9 3 5 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-queued" viewBox="0 0 24 24"><path d="M5 4v8a3 3 0 0 0 3 3h11m-5-5 5 5-5 5"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-3 3V11.5a10 10 0 0 1 20 0Z"/><path d="M7 9h8m-8 5h5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8"/></symbol>
+    <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="m3 3 18 18M9 9v3a3 3 0 0 0 5 2M9 4a3 3 0 0 1 6 1v4M5 10v2a7 7 0 0 0 12 5m2-5v-2m-7 9v3m-4 0h8"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-hangup" viewBox="0 0 24 24"><path d="M3 15h3a1 1 0 0 0 1-1v-3a15 15 0 0 1 10 0v3a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-2c0-5-20-5-20 0v2a1 1 0 0 0 1 1Z"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="m11 5-6 4H2v6h3l6 4V5Zm4 3a5 5 0 0 1 0 8m3-11a9 9 0 0 1 0 14"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 11a9 9 0 0 1 15.36-6.36L21 7m0-4v4h-4M21 13a9 9 0 0 1-15.36 6.36L3 17m4 0H3v4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="m16 3 5 5-3 1-3 5v3l-3-3-8 7 7-8-3-3h3l5-3 1-3Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+  </defs></svg>
+  <div class="app-shell" data-mobile-view="supervisor">
+    <header class="masthead">
+      <button id="workspace-drawer" class="icon-button" aria-label="Browse agents and handoffs" title="Browse agents (Ctrl K)"><svg class="icon"><use href="#i-menu"/></svg><span id="queue-dot" hidden></span></button>
+      <div class="workspace-title"><button id="rename-agent" type="button" disabled><strong id="focus-title">Agent Hub</strong><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button><span class="workspace-subtitle"><span id="focus-subtitle">Your workspace</span><span id="push-indicator" data-status="checking" role="img" aria-label="Checking alerts" title="Checking alerts"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></span></span></div>
+      <details id="quota-menu">
+        <summary id="quota-indicator" aria-label="Codex and Claude weekly allowance remaining" aria-controls="quota-popover">
+          <span class="quota-reading" data-quota-provider="codex" data-level="stale"><span class="quota-provider">Codex</span><svg class="quota-battery" viewBox="0 0 24 14" aria-hidden="true"><rect x="1" y="1" width="19" height="12" rx="3"/><path d="M23 5v4"/><rect class="quota-fill" x="3.5" y="3.5" width="0" height="7" rx="1"/></svg><span class="quota-value">—</span></span>
+          <span class="quota-reading" data-quota-provider="claude" data-level="stale"><span class="quota-provider">Claude</span><svg class="quota-battery" viewBox="0 0 24 14" aria-hidden="true"><rect x="1" y="1" width="19" height="12" rx="3"/><path d="M23 5v4"/><rect class="quota-fill" x="3.5" y="3.5" width="0" height="7" rx="1"/></svg><span class="quota-value">—</span></span>
+        </summary>
+        <section id="quota-popover" aria-label="Usage details"><div class="quota-heading"><strong>Usage</strong><button id="quota-close" type="button" class="icon-button" aria-label="Close usage details"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div><div id="quota-details"></div><button id="quota-all" type="button">All hosts <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></section>
+      </details>
+      <button id="refresh-workspace" type="button" class="icon-button" aria-label="Refresh" title="Refresh hosts and conversation"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+      <details class="workspace-menu"><summary class="icon-button" aria-label="Workspace actions" title="More"><svg class="icon"><use href="#i-more"/></svg></summary><div id="workspace-menu-items"><button id="focus-settings">Settings &amp; usage</button><button id="focus-history">Update history</button><button id="focus-priority">Set priority</button><button id="focus-new">New agent</button></div></details>
+      <strong class="app-name">Agent Hub</strong><strong id="mobile-page-title" class="mobile-only">ARIA</strong><div class="clock"><time id="clock-time"></time><span id="clock-date"></span></div>
+      <button id="find-button" class="location" title="Find an agent (Ctrl K)"><svg class="icon"><use href="#i-search"/></svg><span id="workspace-path">/agents</span><kbd>Ctrl K</kbd></button>
+    <nav class="mobile-tabs" aria-label="Main navigation"><button class="active" data-mobile-pane="supervisor"><svg class="icon"><use href="#i-chat"/></svg><span>ARIA</span></button><button data-mobile-pane="workspace"><svg class="icon"><use href="#i-agents"/></svg><span>Agents <b id="mobile-agent-count">—</b></span></button><button data-mobile-page="notifications"><svg class="icon"><use href="#i-attention"/></svg><span>Updates <b id="mobile-update-count"></b></span></button><button data-mobile-page="status"><svg class="icon"><use href="#i-server"/></svg><span>Status</span></button></nav>
+      <div class="masthead-actions"><span id="sync-state" class="live-label"><span class="dot green"></span>Connected</span><button id="voice-toggle" class="plain-button voice-toggle" aria-pressed="false"><svg class="icon"><use href="#i-sound"/></svg><span id="voice-label">Voice off</span></button><button id="launch-button" class="plain-button"><svg class="icon"><use href="#i-plus"/></svg><span>New agent</span></button></div>
+    </header>
+    <aside class="sidebar">
+      <div class="pane-heading"><span>Hosts</span><button class="icon-button" id="add-connection" aria-label="Add connection" title="Add connection"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+      <div class="connection-scroll"><button class="all-connections" id="overview-button"><svg class="icon"><use href="#i-server"/></svg><span>All hosts</span><span id="nav-count" class="count">—</span></button><div id="connections" class="connections-list"><p class="muted">Connecting…</p></div></div>
+    </aside>
+
+    <main class="workspace">
+      <section id="focus-empty" hidden><div class="empty-symbol"><svg class="icon"><use href="#i-check"/></svg></div><h1>All clear</h1><p id="focus-empty-description">Checking your agents…</p><button id="focus-browse" class="text-button">Browse agents</button></section>
+
+      <div id="server-error" class="banner" hidden></div>
+      <section id="agent-list-view" class="workspace-view list-view">
+        <div class="agent-list-controls"><div class="list-header sr-only"><h1 id="list-heading">Agents</h1><span id="list-caption" class="muted"></span></div>
+        <label class="search-box"><svg class="icon"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search agents…" aria-label="Search agents"><kbd>/</kbd></label></div>
+      <nav class="workspace-tabs" aria-label="Agent filters"><button class="filter-pill active" data-filter="all">All</button><button class="filter-pill attention-tab" data-filter="attention" id="attention-button"><svg class="icon"><use href="#i-attention"/></svg>Attention <span id="attention-count" class="count">—</span></button><button class="filter-pill working-tab" data-filter="running"><span class="dot green"></span>Working</button><span class="tab-spacer"></span><button class="activity-toggle" id="activity-button" aria-expanded="false" title="Show activity"><svg class="icon"><use href="#i-clock"/></svg><span>Activity</span></button></nav>
+        <div class="list-columns"><span>Agent / project</span><span>State</span></div>
+        <div id="agents" class="agent-list" aria-label="Agents"><p class="muted">Reading tmux…</p></div>
+      </section>
+      <section id="agent-view" class="workspace-view detail-view" hidden>
+        <div class="buffer-bar"><button class="back-button" data-back aria-label="Back to agents"><svg class="icon"><use href="#i-back"/></svg>Agents</button><button type="button" id="detail-connection" class="buffer-path host-link"></button><div class="agent-navigation"><span id="agent-position"></span><button id="previous-agent" class="icon-button" aria-label="Previous agent"><svg class="icon"><use href="#i-back"/></svg></button><button id="next-agent" class="icon-button" aria-label="Next agent"><svg class="icon"><use href="#i-arrow"/></svg></button></div></div>
+        <div class="detail-heading"><div class="detail-title-row"><h1 id="detail-title">Agent</h1><span id="detail-state" class="state-badge"></span><button id="agent-tools-toggle" class="text-button" aria-expanded="false">Actions</button></div><div id="detail-meta" class="detail-meta"></div></div>
+        <div class="detail-toolbar"><div class="output-tabs" role="tablist" aria-label="Agent output format"><button id="reader-tab" role="tab" aria-selected="true" aria-controls="agent-reader" data-output-mode="reader">Reader</button><button id="raw-tab" role="tab" aria-selected="false" aria-controls="terminal" tabindex="-1" data-output-mode="raw">Raw output</button></div><button id="copy-attach" class="text-button" title="Copy the tmux attach command">Copy tmux command</button></div>
+        <div id="handoff-context" role="group" aria-label="Task handoff" aria-describedby="handoff-summary" hidden><p id="handoff-summary" class="sr-only"></p><div class="handoff-controls"><details id="defer-menu"><summary class="icon-button" aria-label="Set this aside" title="Later"><svg class="icon"><use href="#i-clock"/></svg></summary><div><button data-defer="1800">Later · 30 minutes</button><button data-defer="3600">In an hour</button><button data-defer="tomorrow">Tomorrow morning</button></div></details><button id="focus-reviewed" class="icon-button" aria-label="Mark reviewed and continue" title="Reviewed"><svg class="icon"><use href="#i-check"/></svg></button></div></div>
+        <div class="output-status"><span id="output-source" hidden></span><button id="new-output" class="text-button" hidden>New output <svg class="icon"><use href="#i-arrow"/></svg></button></div>
+        <p id="preview-error" class="preview-error" role="status" hidden></p>
+        <div id="agent-reader" class="agent-reader" role="tabpanel" aria-labelledby="reader-tab" tabindex="0"><div id="agent-sent"></div><div id="agent-activity" class="activity-feedback" role="status" hidden></div><details id="agent-previous-output" class="reader-fold" hidden><summary>Previous terminal output</summary></details><p id="history-note" class="muted" hidden></p><div id="agent-output"><div class="reader-empty">Reading agent output…</div></div></div>
+        <div id="terminal-view" class="terminal-view" hidden>
+          <div class="terminal-toolbar" role="group" aria-label="Terminal controls"><button id="terminal-back" type="button" class="text-button"><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>Conversation</button><div class="terminal-controls"><button id="terminal-wrap" type="button" class="text-button" aria-pressed="false">Wrap</button><button id="terminal-copy" type="button" class="icon-button" aria-label="Copy terminal output" title="Copy terminal output"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button></div></div>
+          <pre id="terminal" class="terminal" role="tabpanel" aria-label="Terminal output" tabindex="0" hidden>Loading…</pre>
+        </div>
+        <div class="detail-actions"><button id="agent-to-supervisor" class="text-button">Ask ARIA</button><button id="focus-agent" class="text-button">Focus</button><button id="acknowledge-agent" class="text-button">Mark reviewed</button><button id="pause-agent" class="text-button danger">Request pause</button></div>
+        <form id="agent-message-form"><label class="sr-only" for="agent-message">Next instruction for this agent</label><div class="agent-composer"><textarea id="agent-message" placeholder="Message agent…" rows="1" maxlength="12000" aria-describedby="agent-message-hint"></textarea><button id="focus-voice" type="button" class="icon-button" aria-label="Start voice call" title="Start voice call" aria-pressed="false" aria-controls="voice-call"><svg class="icon" aria-hidden="true"><use href="#i-mic"/></svg></button><button id="queue-agent" type="button" class="queue-button" title="Queue this exact draft without interrupting" hidden>Queue</button><button class="primary-button" id="send-agent" type="submit" aria-label="Send instruction" title="Send instruction (Enter; Shift Enter for a new line)"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg></button></div><p id="agent-message-hint" class="form-hint"></p></form>
+      </section>
+      <section id="connection-view" class="workspace-view form-view" hidden>
+        <div class="buffer-bar"><button class="back-button" data-back aria-label="Back from connection form"><svg class="icon"><use href="#i-back"/></svg>Agents</button><kbd>Esc</kbd></div>
+        <div class="form-content"><h1>Add connection</h1><p class="muted">Connect a tmux host to this workspace.</p><form id="connection-form"><label>Name<input name="label" placeholder="Homelab" required maxlength="80"></label><label>Connection<select name="kind"><option value="ssh">SSH / Tailscale host</option><option value="local">Local tmux socket</option></select></label><label id="ssh-target-label">SSH host<input name="target" placeholder="user@host or SSH alias"></label><label>Tmux socket <span class="optional">optional</span><input name="socket" placeholder="Default socket, or /absolute/path"></label><p class="form-hint">Uses your SSH keys and known hosts. The remote host needs tmux.</p><button class="primary-button" type="submit">Connect <svg class="icon"><use href="#i-arrow"/></svg></button></form></div>
+      </section>
+      <section id="launch-view" class="workspace-view form-view" hidden>
+        <div class="buffer-bar"><button class="back-button" data-back aria-label="Back from launch form"><svg class="icon"><use href="#i-back"/></svg>Agents</button><kbd>Esc</kbd></div>
+        <div class="form-content"><h1>New agent</h1><form id="launch-form"><label>Connection<select name="connection_id" id="launch-connection"></select></label><label>Agent<select name="runtime"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label><label>Project directory<input name="cwd" placeholder="/home/you/src/project" required></label><label>Task<textarea name="message" rows="5" placeholder="Describe the work to do" required maxlength="12000"></textarea></label><p class="form-hint">Starts a tmux session on the selected host.</p><button class="primary-button" type="submit">Launch <svg class="icon"><use href="#i-arrow"/></svg></button></form></div>
+      </section>
+      <section id="activity-view" class="workspace-view activity-view" hidden><div class="buffer-bar"><button class="back-button" data-back><svg class="icon"><use href="#i-back"/></svg>Agents</button><kbd>Esc</kbd></div><div class="list-header"><h1>Activity</h1><span class="muted">All hosts</span></div><div id="events" class="events-list"></div></section>
+      <section id="notifications-view" class="workspace-view activity-view" hidden>
+        <div class="buffer-bar"><button class="back-button" data-back><svg class="icon"><use href="#i-back"/></svg>Agents</button><kbd>Esc</kbd></div>
+        <div class="list-header"><h1>Updates</h1></div>
+
+        <div class="update-filters" role="group" aria-label="Filter updates"><button class="text-button active" data-update-filter="pending" aria-pressed="true">Pending <span id="updates-pending-count"></span></button><button class="text-button" data-update-filter="handled" aria-pressed="false">Handled <span id="updates-handled-count"></span></button><button class="text-button" data-update-filter="all" aria-pressed="false">All</button><details class="inbox-tools"><summary>Options</summary><div><button id="read-notifications" class="text-button">Mark all read</button><button id="handle-shown-updates" class="text-button">Mark shown handled</button></div></details></div>
+        <p id="updates-showing" class="muted"></p>
+        <div id="notifications" class="notification-list"></div>
+      </section>
+      <section id="status-view" class="workspace-view status-view" hidden>
+        <div class="page-heading"><h1>Status</h1></div>
+        <div class="status-grid">
+          <section class="status-section" id="appearance-settings" aria-labelledby="appearance-title">
+            <header class="appearance-heading"><h2 id="appearance-title">Appearance</h2><button type="button" id="appearance-reset" class="text-button" disabled>Reset</button></header>
+            <div class="appearance-row"><label for="appearance-size">Text size</label><div class="appearance-size-control"><input id="appearance-size" data-appearance="size" type="range" min="85" max="130" step="5" value="100"><output id="appearance-size-value" for="appearance-size">100%</output></div></div>
+            <div class="appearance-row"><label for="appearance-font">Font</label><select id="appearance-font" data-appearance="font"><option value="maple">Maple Mono</option><option value="sans">System sans</option><option value="mono">System mono</option></select></div>
+            <div class="appearance-row"><label for="appearance-spacing">Spacing</label><select id="appearance-spacing" data-appearance="spacing"><option value="compact">Compact</option><option value="default">Default</option><option value="relaxed">Relaxed</option></select></div>
+            <div class="appearance-row"><label for="appearance-contrast">Contrast</label><select id="appearance-contrast" data-appearance="contrast"><option value="default">Default</option><option value="high">Higher</option></select></div>
+            <div class="appearance-row"><label for="motion-preference">Motion</label><select id="motion-preference" data-appearance="motion"><option value="full">Full</option><option value="subtle">Gentle</option><option value="system">Follow device</option><option value="reduce">Off</option></select></div>
+            <div class="appearance-preview" aria-label="Appearance preview"><div class="appearance-preview-heading"><span>Preview</span><span class="activity-feedback" data-kind="active" aria-hidden="true"><span class="feedback-dots"><i></i><i></i><i></i></span></span></div><p class="reader-prose">The result is ready. <code>run --compare</code></p></div>
+            <p id="appearance-storage" role="status">Saved in this browser.</p>
+          </section>
+          <section class="status-section" id="mobile-connections-slot"></section>
+          <section class="status-section" id="mobile-usage-slot"></section>
+          <section class="status-section" id="mobile-settings-slot"><h2>Notifications</h2><div class="push-status-heading"><strong id="push-status-label" data-status="checking">Checking alerts</strong><button id="check-push" type="button" class="text-button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Check</button></div><div class="notification-settings"><p id="notification-help">Checking watching and enrolled devices.</p><p id="push-outcome"></p><p id="push-accepted" hidden></p><button id="enable-push" class="primary-button">Set up this browser</button><button id="toggle-watch" class="text-button">Pause watching</button></div></section>
+        </div>
+      </section>
+    </main>
+    <aside class="supervisor-panel">
+      <div class="pane-heading"><span class="supervisor-title"><svg class="icon"><use href="#i-chat"/></svg>ARIA</span><button id="brief-button" class="text-button">Brief me <svg class="icon"><use href="#i-arrow"/></svg></button></div>
+      <div class="supervisor-meta"><span class="dot green" id="supervisor-dot"></span><span id="supervisor-status">Ready</span><span id="provider" class="provider">—</span></div>
+      <div class="watch-bar"><span id="watch-dot" class="dot green"></span><span id="watch-label" class="watch-label">Starting watch…</span><button id="notification-button" class="text-button">Updates <span id="notification-count"></span></button></div>
+      <section class="weekly-usage" aria-label="Account usage limits">
+        <div class="weekly-heading"><span>Usage limits</span><div class="usage-providers" role="group" aria-label="Usage provider"><button type="button" data-usage-provider="codex" aria-pressed="true" aria-controls="weekly-limits">Codex</button><button type="button" data-usage-provider="claude" aria-pressed="false" aria-controls="weekly-limits">Claude</button></div></div>
+        <div id="weekly-limits"><p class="usage-note">Reading usage…</p></div>
+      </section>
+      <details id="node-controls" class="node-controls" hidden><summary>Host settings</summary><div class="node-fields"><label>Dashboard<select id="node-endpoint" aria-label="Open dashboard on another host"></select></label><label>ARIA<select id="supervisor-owner" aria-label="Move supervisor to another host"></select></label><button id="handoff-supervisor" class="text-button" type="button">Move</button></div></details>
+      <div id="chat" class="chat-messages" aria-live="polite"></div>
+      <button id="chat-new-output" class="text-button chat-new-output" hidden>New messages ↓</button>
+      <div id="supervisor-activity" class="activity-feedback" role="status" hidden></div>
+      <div id="selected-context" class="selected-context" hidden></div>
+      <form id="supervisor-form" class="supervisor-form"><label class="sr-only" for="supervisor-input">Message ARIA</label><textarea id="supervisor-input" placeholder="Message ARIA…" rows="2" maxlength="8000"></textarea><div class="composer-controls"><label class="actions-toggle"><input id="allow-actions" type="checkbox" checked> Allow controls</label><div><button id="send-supervisor" class="send-button" type="submit" aria-label="Send ARIA request"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg></button></div></div></form>
+      <div class="voice-hint" id="voice-hint">Enter to send · Shift Enter for a new line</div>
+    </aside>
+  </div>
+  <dialog id="rename-dialog" aria-labelledby="rename-label" aria-describedby="rename-host"><form id="rename-form">
+    <div class="edit-heading"><strong id="rename-label">Task name</strong><button type="button" id="cancel-rename" aria-label="Cancel rename">×</button></div>
+    <p id="rename-host" class="form-hint"></p>
+    <label for="task-name">Display name</label><input id="task-name" maxlength="48" autocomplete="off" enterkeyhint="next" placeholder="e.g. Teleop · IK tuning">
+    <label for="window-name">Tmux window</label><input id="window-name" maxlength="80" required autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-describedby="rename-error">
+    <p id="rename-error" role="status"></p><button id="save-window-name" class="primary-button" type="submit" disabled>Save</button>
+  </form></dialog>
+  <dialog id="edit-dialog"><form id="edit-form"><div class="edit-heading"><strong>Edit message</strong><button type="button" id="cancel-edit" aria-label="Cancel edit">×</button></div><textarea id="edit-message" rows="6" maxlength="12000" required aria-label="Edited message"></textarea><p class="form-hint">Starts a new agent from here. Later messages are excluded. Project files stay as they are.</p><p id="edit-error" role="status"></p><button id="fork-send" class="primary-button" type="submit">Fork &amp; send</button></form></dialog>
+  <dialog id="agent-drawer" aria-label="Agents and handoffs"><div class="drawer-heading"><strong>Workspace</strong><button id="drawer-close" class="icon-button" aria-label="Close agents"><svg class="icon"><use href="#i-close"/></svg></button></div><button id="focus-next" class="queue-next"><svg class="icon"><use href="#i-arrow"/></svg><span>Next handoff</span><b id="focus-queue-count"></b></button><div id="priority-note" hidden></div><div id="deferred-list"></div></dialog>
+  <dialog id="priority-dialog"><form id="priority-form"><div class="edit-heading"><strong>Current priority</strong><button id="priority-close" class="icon-button" type="button" aria-label="Close priority">×</button></div><label for="priority-text">Project, task, or host</label><input id="priority-text" maxlength="160" placeholder="e.g. RTC evaluation" autocomplete="off"><p class="form-hint">Matching handoffs come first for the next 12 hours.</p><button class="primary-button">Save</button><button id="priority-clear" class="text-button" type="button">Clear</button></form></dialog>
+  <section id="voice-call" aria-label="Voice call" hidden>
+    <div class="voice-call-row">
+      <button id="voice-details-toggle" type="button" aria-expanded="false" aria-controls="voice-details" title="Show call transcript">
+        <span class="voice-wave" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="voice-call-copy"><span id="voice-state" role="status" aria-live="polite">Ready</span><span id="voice-caption-preview" hidden></span></span>
+        <span class="voice-chevron" aria-hidden="true"></span>
+      </button>
+      <button id="voice-end" type="button" class="icon-button" aria-label="End voice call" title="End call"><svg class="icon" aria-hidden="true"><use href="#i-hangup"/></svg></button>
+    </div>
+    <p id="voice-help" hidden></p><a id="voice-secure" class="text-button" hidden>Open secure hub</a>
+    <div id="voice-details" hidden>
+      <div id="voice-captions" role="log" aria-label="Call transcript" aria-live="off"></div>
+      <div class="voice-actions"><button id="voice-repeat" type="button" class="text-button">Repeat</button><button id="voice-next" type="button" class="text-button">Next</button><button id="voice-later" type="button" class="text-button">Later</button></div>
+    </div>
+  </section>
+  <div id="voice-aura" aria-hidden="true"></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

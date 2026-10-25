@@ -1,0 +1,172 @@
+[
+  {
+    "name": "goal",
+    "text": "<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>",
+    "expected": ""
+  },
+  {
+    "name": "goal status",
+    "text": "<codex_internal_context source=\"user_goal\">User set goal status: \"paused\".</codex_internal_context>",
+    "expected": ""
+  },
+  {
+    "name": "environment",
+    "text": "<environment_context>\n<current_date>2026-10-14</current_date>\n<filesystem><root>/work</root></filesystem>\n</environment_context>",
+    "expected": ""
+  },
+  {
+    "name": "permissions",
+    "text": "<permissions instructions>Access configuration.</permissions instructions>",
+    "expected": ""
+  },
+  {
+    "name": "mode",
+    "text": "<collaboration_mode>Internal mode.</collaboration_mode>",
+    "expected": ""
+  },
+  {
+    "name": "combined context",
+    "text": "<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>\n\n<environment_context>\n<current_date>2026-10-14</current_date>\n<filesystem><root>/work</root></filesystem>\n</environment_context>",
+    "expected": ""
+  },
+  {
+    "name": "leading blank lines",
+    "text": "\r\n<environment_context>\n<current_date>2026-10-14</current_date>\n<filesystem><root>/work</root></filesystem>\n</environment_context>\r\n",
+    "expected": ""
+  },
+  {
+    "name": "request after context",
+    "text": "<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>\n\nPlease compare the checkpoints.",
+    "expected": "Please compare the checkpoints."
+  },
+  {
+    "name": "AGENTS and environment",
+    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nProject instructions.\n</INSTRUCTIONS>\n\n<environment_context>\n<current_date>2026-10-14</current_date>\n<filesystem><root>/work</root></filesystem>\n</environment_context>",
+    "expected": ""
+  },
+  {
+    "name": "request after AGENTS",
+    "text": "# AGENTS.md instructions for /work\n<INSTRUCTIONS>Project instructions.</INSTRUCTIONS>\nKeep the plot.",
+    "expected": "Keep the plot."
+  },
+  {
+    "name": "mention",
+    "text": "Why did <codex_internal_context source=\"goal\"> appear in my bubble?",
+    "expected": "Why did <codex_internal_context source=\"goal\"> appear in my bubble?"
+  },
+  {
+    "name": "fenced",
+    "text": "```xml\n<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>\n```",
+    "expected": "```xml\n<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>\n```"
+  },
+  {
+    "name": "quoted",
+    "text": "> <codex_internal_context source=\"goal\">\n> Internal goal data. <objective>Leave this out of the chat.</objective>\n> </codex_internal_context>",
+    "expected": "> <codex_internal_context source=\"goal\">\n> Internal goal data. <objective>Leave this out of the chat.</objective>\n> </codex_internal_context>"
+  },
+  {
+    "name": "indented",
+    "text": "    <codex_internal_context source=\"goal\">\n    Internal goal data. <objective>Leave this out of the chat.</objective>\n    </codex_internal_context>",
+    "expected": "    <codex_internal_context source=\"goal\">\n    Internal goal data. <objective>Leave this out of the chat.</objective>\n    </codex_internal_context>"
+  },
+  {
+    "name": "literal after prose",
+    "text": "Please inspect this:\n<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>",
+    "expected": "Please inspect this:\n<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_internal_context>"
+  },
+  {
+    "name": "incomplete",
+    "text": "<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_inter",
+    "expected": "<codex_internal_context source=\"goal\">\nInternal goal data. <objective>Leave this out of the chat.</objective>\n</codex_inter"
+  },
+  {
+    "name": "unknown",
+    "text": "<user_notes>Keep these notes.</user_notes>",
+    "expected": "<user_notes>Keep these notes.</user_notes>"
+  },
+  {
+    "name": "file discussion",
+    "text": "# AGENTS.md\nPlease update the instructions.",
+    "expected": "# AGENTS.md\nPlease update the instructions."
+  },
+  {
+    "name": "question reply",
+    "text": "<send_user_message_question_reply>[]</send_user_message_question_reply>",
+    "expected": "<send_user_message_question_reply>[]</send_user_message_question_reply>"
+  },
+  {
+    "name": "turn_aborted",
+    "text": "<turn_aborted>Internal runtime notice.</turn_aborted>",
+    "expected": ""
+  },
+  {
+    "name": "turn_aborted before input",
+    "text": "<turn_aborted>Internal runtime notice.</turn_aborted>\n\nKeep the plot.",
+    "expected": "Keep the plot."
+  },
+  {
+    "name": "turn_aborted literal",
+    "text": "Explain <turn_aborted>Internal runtime notice.</turn_aborted>",
+    "expected": "Explain <turn_aborted>Internal runtime notice.</turn_aborted>"
+  },
+  {
+    "name": "turn_aborted fenced",
+    "text": "```xml\n<turn_aborted>Internal runtime notice.</turn_aborted>\n```",
+    "expected": "```xml\n<turn_aborted>Internal runtime notice.</turn_aborted>\n```"
+  },
+  {
+    "name": "turn_aborted incomplete",
+    "text": "<turn_aborted>Internal runtime notice.",
+    "expected": "<turn_aborted>Internal runtime notice."
+  },
+  {
+    "name": "local-command-caveat",
+    "text": "<local-command-caveat>Internal runtime notice.</local-command-caveat>",
+    "expected": ""
+  },
+  {
+    "name": "local-command-caveat before input",
+    "text": "<local-command-caveat>Internal runtime notice.</local-command-caveat>\n\nKeep the plot.",
+    "expected": "Keep the plot."
+  },
+  {
+    "name": "local-command-caveat literal",
+    "text": "Explain <local-command-caveat>Internal runtime notice.</local-command-caveat>",
+    "expected": "Explain <local-command-caveat>Internal runtime notice.</local-command-caveat>"
+  },
+  {
+    "name": "local-command-caveat fenced",
+    "text": "```xml\n<local-command-caveat>Internal runtime notice.</local-command-caveat>\n```",
+    "expected": "```xml\n<local-command-caveat>Internal runtime notice.</local-command-caveat>\n```"
+  },
+  {
+    "name": "local-command-caveat incomplete",
+    "text": "<local-command-caveat>Internal runtime notice.",
+    "expected": "<local-command-caveat>Internal runtime notice."
+  },
+  {
+    "name": "system-reminder",
+    "text": "<system-reminder>Internal runtime notice.</system-reminder>",
+    "expected": ""
+  },
+  {
+    "name": "system-reminder before input",
+    "text": "<system-reminder>Internal runtime notice.</system-reminder>\n\nKeep the plot.",
+    "expected": "Keep the plot."
+  },
+  {
+    "name": "system-reminder literal",
+    "text": "Explain <system-reminder>Internal runtime notice.</system-reminder>",
+    "expected": "Explain <system-reminder>Internal runtime notice.</system-reminder>"
+  },
+  {
+    "name": "system-reminder fenced",
+    "text": "```xml\n<system-reminder>Internal runtime notice.</system-reminder>\n```",
+    "expected": "```xml\n<system-reminder>Internal runtime notice.</system-reminder>\n```"
+  },
+  {
+    "name": "system-reminder incomplete",
+    "text": "<system-reminder>Internal runtime notice.",
+    "expected": "<system-reminder>Internal runtime notice."
+  }
+]

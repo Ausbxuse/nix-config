@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reply", "request_intent", "actions", "select_agent_id", "agent_choices", "assistant_changes"],
+  "properties": {
+    "request_intent": {"type": "string", "enum": ["answer", "coordinate"]},
+    "reply": {"type": "string"},
+    "assistant_changes": {
+      "type": "array", "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["type", "id", "kind", "text", "agent_id", "mode", "minutes", "quote"],
+        "properties": {
+          "type": {"type": "string", "enum": ["remember", "forget", "attention"]},
+          "id": {"type": "string"}, "kind": {"type": "string", "enum": ["", "priority", "watch"]},
+          "text": {"type": "string"}, "agent_id": {"type": "string"},
+          "mode": {"type": "string", "enum": ["", "normal", "quiet", "driving", "focus"]},
+          "minutes": {"type": "integer"}, "quote": {"type": "string"}
+        }
+      }
+    },
+    "select_agent_id": {"type": "string"},
+    "agent_choices": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "reason"],
+        "properties": {
+          "agent_id": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "agent_id", "connection_id", "message", "cwd", "runtime", "quote", "instruction_source"],
+        "properties": {
+          "type": {"type": "string", "enum": ["send", "queue", "interrupt", "launch"]},
+          "agent_id": {"type": "string"},
+          "connection_id": {"type": "string"},
+          "message": {"type": "string"},
+          "cwd": {"type": "string"},
+          "runtime": {"type": "string", "enum": ["codex", "claude", ""]},
+          "quote": {"type": "string"},
+          "instruction_source": {"type": "string", "enum": ["current", "previous"]}
+        }
+      }
+    }
+  }
+}

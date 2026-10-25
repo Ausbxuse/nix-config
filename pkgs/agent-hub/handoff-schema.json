@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"required":["summary","source_ids","relevant_ids","focus_relevant"],"properties":{"summary":{"type":"string"},"source_ids":{"type":"array","items":{"type":"string"}},"relevant_ids":{"type":"array","items":{"type":"string"}},"focus_relevant":{"type":"boolean"}}}

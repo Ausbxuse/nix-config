@@ -6,7 +6,9 @@
   ...
 }: let
   system = pkgs.stdenv.hostPlatform.system;
-  codex = inputs.codex-cli-nix.packages.${system}.default;
+  codex = pkgs.callPackage ../../pkgs/codex-live-theme {
+    upstream = inputs.codex-cli-nix.packages.${system}.default;
+  };
   codexModel = "gpt-5.6-sol";
   codexReasoningEffort = "max";
   agentMaxThreads = 5;
@@ -91,8 +93,27 @@
       doc["model_reasoning_effort"] = reasoning_effort
       doc["notify"] = [notify_command]
       doc["sandbox_mode"] = "danger-full-access"
+      # Live web search has no per-call approval. Browser site approvals are
+      # separate and managed in the desktop app's Settings > Browser.
+      doc["web_search"] = "live"
+      doc["developer_instructions"] = (
+          "Ask necessary clarification questions together before starting "
+          "work, and wait for the answers before proceeding. If the request "
+          "is already clear, proceed without asking for confirmation.\n\n"
+          "Once work begins, do not interrupt with questions, "
+          "preference checks, or requests to continue. Make reasonable "
+          "assumptions for routine decisions and complete the authorized "
+          "task. Report those assumptions with the result.\n\n"
+          "Read-only website viewing, web searches, and fetching public "
+          "documentation needed for the task are already authorized; do "
+          "not ask permission for them. Prefer built-in web search for "
+          "reading public pages, and use an interactive browser when the "
+          "task requires it."
+      )
 
       tui = ensure_table(doc, "tui")
+      # Automatic syntax selection follows the runtime terminal palette.
+      tui.pop("theme", None)
       tui["status_line"] = status_line
       tui["status_line_use_colors"] = True
       tui["notifications"] = ["approval-requested", "plan-mode-prompt"]

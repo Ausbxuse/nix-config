@@ -1,0 +1,71 @@
+/* Typography uses rem; spacing and touch targets do not shrink with text. */
+:root { font-size:calc(100% * var(--text-scale,1)); }
+:root[data-font=sans] { --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+:root[data-font=mono] { --ui:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",monospace; }
+:root[data-contrast=high] {
+  --bg:#171b2a;--surface:#242a3d;--raised:#2e354d;--hover:#3b4561;
+  --text:#f5f3ff;--muted:#d0d3e7;--faint:#b7bfd9;--line:#a8b3db55;
+  --cyan:#c7d0ff;--purple:#c7d0ff;--sage:#b8e09c;--gold:#f0d1a0;--peach:#f2ba9a;--rose:#ffb8c3;
+  --accent-line:#b4befe88;
+  --syntax-keyword:#dbc4ff;--syntax-string:#c0e5ae;--syntax-property:#a4e9f3;
+  --syntax-function:#bed6ff;--syntax-type:#f4dfa4;--syntax-number:#ffd1ad;--syntax-variable:#ffdae1;
+}
+:root[data-contrast=high] :is(#agent-drawer,.host-group-heading) { background:var(--surface); }
+:root[data-contrast=high] #focus-composers { --composer-line:var(--line); }
+:root[data-contrast=high] :is(#workspace-menu-items,#defer-menu>div) { border-color:var(--line); }
+:root[data-contrast=high] :is(.reader-user .reader-prose,.agent-message-bubble .message-text,.chat-message.user .message-text) { background:#b4befe22;border-color:var(--accent-line); }
+
+:root[data-spacing=compact] { --message-gap:14px;--row-padding:6px;--preview-padding:8px; }
+:root[data-spacing=relaxed] { --message-gap:30px;--row-padding:12px;--preview-padding:16px; }
+:root[data-spacing=compact] .agent-reader { padding-top:12px; }
+:root[data-spacing=relaxed] .agent-reader { padding-top:28px; }
+:root:is([data-spacing=compact],[data-spacing=relaxed]) :is(#agent-drawer .agent-card,.archive-result,.notification-entry,.recipient-option) { padding-block:var(--row-padding); }
+:root:is([data-spacing=compact],[data-spacing=relaxed]) #task-supervisor .chat-message { margin-bottom:var(--message-gap); }
+:root[data-spacing=compact] :is(.reader-prose,.rich-message)>p { margin-block:.45em; }
+:root[data-spacing=relaxed] :is(.reader-prose,.rich-message)>p { margin-block:.85em; }
+
+/* The header may grow with text, but keeps its existing size at the default. */
+.app-shell,.app-shell[data-mobile-view][data-page],.phone-keyboard .app-shell[data-page][data-mobile-view] { grid-template-rows:minmax(64px,max-content) minmax(0,1fr); }
+.status-section { min-width:0; }
+.appearance-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px; }
+.appearance-heading h2 { margin:0;font-size:var(--type-label); }
+#appearance-reset { min-height:44px;padding:6px 8px;margin-right:-8px;color:var(--cyan);font-size:var(--type-caption); }
+#appearance-reset:disabled { opacity:.45; }
+.appearance-row { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr);gap:12px;align-items:center;min-height:48px;border-top:1px solid var(--line);font-size:var(--type-label); }
+.appearance-row label { color:var(--muted);overflow-wrap:anywhere; }
+.appearance-row select { min-height:44px;font:inherit;padding:6px 8px;background:var(--bg); }
+.appearance-size-control { display:flex;align-items:center;gap:8px;min-width:0; }
+#appearance-size { flex:1;min-width:0;width:100%;height:44px;padding:0;margin:0;accent-color:var(--cyan);background:transparent;border:0;box-shadow:none;cursor:pointer; }
+#appearance-size:focus-visible { outline:2px solid var(--cyan);outline-offset:0;border-radius:6px; }
+#appearance-size-value { flex:none;min-width:4ch;text-align:right;color:var(--text);font-size:var(--type-caption);font-variant-numeric:tabular-nums; }
+.appearance-preview { padding:var(--preview-padding,12px);margin-top:8px;border:1px solid var(--line);border-radius:9px;background:var(--bg); }
+.appearance-preview-heading { display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--type-caption);color:var(--faint); }
+.appearance-preview .activity-feedback { min-height:18px;padding:0;margin:0; }
+.appearance-preview .reader-prose { margin:4px 0 0; }
+#appearance-storage { margin:8px 0 0;font-size:var(--type-caption);color:var(--muted);overflow-wrap:anywhere; }
+@media(max-width:800px) {
+  .app-shell,.app-shell[data-mobile-view][data-page],.phone-keyboard .app-shell[data-page][data-mobile-view] { grid-template-rows:minmax(58px,max-content) minmax(0,1fr); }
+  /* Native pickers keep the compact label size without shrinking their tap area. */
+  .appearance-row select { min-height:44px; }
+}
+@media(max-width:420px) {
+  :root[data-large-text=true] .app-shell>.masthead { display:grid;grid-template-columns:42px minmax(0,1fr) 42px 42px;row-gap:0; }
+  :root[data-large-text=true] #workspace-drawer { grid-row:1;grid-column:1; }
+  :root[data-large-text=true] .workspace-title { grid-row:1;grid-column:2; }
+  :root[data-large-text=true] #refresh-workspace { grid-row:1;grid-column:3; }
+  :root[data-large-text=true] .workspace-menu { grid-row:1;grid-column:4; }
+  :root[data-large-text=true] #quota-menu { grid-row:2;grid-column:1/-1; }
+  :root[data-large-text=true] #quota-indicator { display:flex;justify-content:flex-end;gap:16px;min-height:28px; }
+}
+
+/* Gentle motion keeps activity visible without moving content or bouncing dots. */
+:root[data-motion=subtle] *,:root[data-motion=subtle] *::before,:root[data-motion=subtle] *::after {
+  animation:none!important;transition-property:color,background-color,border-color,opacity,box-shadow!important;scroll-behavior:auto!important;
+}
+:root[data-motion=subtle] :is(button,summary):active { transform:none; }
+@media(prefers-reduced-motion:no-preference) {
+  :root[data-motion=subtle] .activity-feedback[data-kind=active] .feedback-dots i { animation:gentle-pulse 1.8s ease-in-out var(--dot-delay,0s) infinite!important; }
+  :root[data-motion=subtle] :is(.running-ring,#refresh-workspace[aria-busy=true] .icon),:root[data-motion=subtle] .asset-preview-status.loading::before { animation:turn 1.6s linear infinite!important; }
+  :root[data-motion=subtle] #voice-aura[data-call=active] { animation:voice-breathe 6s ease-in-out infinite!important; }
+}
+@keyframes gentle-pulse { 0%,100% { opacity:.35; }50% { opacity:1; } }

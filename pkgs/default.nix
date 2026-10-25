@@ -25,6 +25,20 @@
   shLib = builtins.readFile ../scripts/lib.sh;
 
   herdr = pkgs.callPackage ./herdr.nix {};
+  agentHub = pkgs.callPackage ./agent-hub {};
+  agentHubBackup = pkgs.callPackage ./agent-hub/backup.nix {};
+  agentHubBackupUnits = import ./agent-hub/backup-service.nix {package = agentHubBackup;};
+  agentHubBackupService = pkgs.linkFarm "agent-hub-backup-service" (map (kind: {
+    name = "lib/systemd/user/agent-hub-backup.${kind}";
+    path = pkgs.writeText "agent-hub-backup.${kind}"
+      (lib.generators.toINI {listsAsDuplicateKeys = true;} agentHubBackupUnits.${kind});
+  }) ["service" "timer"]);
+  agentHubService = pkgs.writeTextFile {
+    name = "agent-hub-service";
+    destination = "/lib/systemd/user/agent-hub.service";
+    text = lib.generators.toINI {listsAsDuplicateKeys = true;}
+      (import ./agent-hub/service.nix {package = agentHub;});
+  };
   minecraft = pkgs.callPackage ./minecraft {};
 
   mkScriptApp = {
@@ -301,6 +315,10 @@
     then nvim
     else installerEditor;
 in {
+  agent-hub = agentHub;
+  agent-hub-service = agentHubService;
+  agent-hub-backup = agentHubBackup;
+  agent-hub-backup-service = agentHubBackupService;
   minecraftClient = minecraft.mrpack;
   minecraftDeploy = minecraft.deploy;
   minecraftBootstrap = minecraft.bootstrap;

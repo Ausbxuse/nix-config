@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "tldr", "lesson", "examples", "evidence_quotes"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "tldr": {"type": "string"},
+          "lesson": {"type": "string"},
+          "examples": {"type": "array", "items": {"type": "string"}},
+          "evidence_quotes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

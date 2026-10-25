@@ -1,0 +1,2 @@
+# Preserve upstream strings and license text in reproducible vendor output.
+static/vendor/** -whitespace linguist-vendored

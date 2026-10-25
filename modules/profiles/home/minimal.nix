@@ -2,6 +2,7 @@
   config,
   pkgs,
   inputs,
+  hostname,
   ...
 }: {
   imports = [
@@ -9,11 +10,16 @@
     ../../home/env
     ../../home/claude.nix
     ../../home/codex.nix
+    ../../home/agent-hub.nix
     ../../home/zsh
     ../../home/nvim
     ../../home/herdr
     ../../home/tmux
   ];
+
+  # The unit only starts on hosts with a private node.json configuration.
+  services.agent-hub.enable = true;
+  services.agent-hub.backup.enable = hostname == "razy";
 
   xdg.configFile."nix/nix.conf".text = ''
     experimental-features = nix-command flakes

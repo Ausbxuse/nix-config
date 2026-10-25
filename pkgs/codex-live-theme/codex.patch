@@ -1,0 +1,275 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index 1b07e98..3c191de 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -875,6 +875,13 @@ impl App {
+             self.discard_startup_modal_input(tui)?;
+             return Ok(AppRunControl::Continue);
+         }
++        if crate::terminal_palette::take_palette_changed() {
++            // Re-resolve automatic syntax colors and invalidate theme-aware content caches.
++            // Explicit user themes are preserved by the existing config resolver.
++            self.restore_runtime_theme_from_config();
++            self.refresh_status_line();
++            self.schedule_immediate_resize_reflow(tui);
++        }
+         let idle_draw = matches!(event, TuiEvent::Draw);
+         if self.handle_rendered_selection_event(tui, &event)? {
+             return Ok(AppRunControl::Continue);
+diff --git a/codex-rs/tui/src/terminal_palette.rs b/codex-rs/tui/src/terminal_palette.rs
+index 8364c6b..9a3b7c5 100644
+--- a/codex-rs/tui/src/terminal_palette.rs
++++ b/codex-rs/tui/src/terminal_palette.rs
+@@ -88,12 +88,50 @@ fn best_color_for_color_level(target: (u8, u8, u8), color_level: StdoutColorLeve
+     }
+ }
+ 
+-#[derive(Clone, Copy)]
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub struct DefaultColors {
+     fg: (u8, u8, u8),
+     bg: (u8, u8, u8),
+ }
+ 
++// A complete pair is committed together; missing or malformed replies never erase
++// the last usable palette. The event stream remains the only terminal reader.
++#[derive(Default)]
++pub(crate) struct PaletteRefresh {
++    fg: Option<(u8, u8, u8)>,
++    bg: Option<(u8, u8, u8)>,
++}
++
++impl PaletteRefresh {
++    pub(crate) fn accept(&mut self, slot: u8, rgb: Option<(u8, u8, u8)>) -> Option<DefaultColors> {
++        match slot {
++            10 => self.fg = rgb,
++            11 => self.bg = rgb,
++            _ => return None,
++        }
++        let colors = DefaultColors {
++            fg: self.fg?,
++            bg: self.bg?,
++        };
++        *self = Self::default();
++        Some(colors)
++    }
++}
++
++static PALETTE_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++pub(crate) fn update_default_colors(colors: DefaultColors) -> bool {
++    let changed = imp::update_default_colors(colors);
++    if changed {
++        PALETTE_CHANGED.store(true, std::sync::atomic::Ordering::Release);
++    }
++    changed
++}
++
++pub(crate) fn take_palette_changed() -> bool {
++    PALETTE_CHANGED.swap(false, std::sync::atomic::Ordering::AcqRel)
++}
++
+ #[cfg(test)]
+ thread_local! {
+     static TEST_DEFAULT_COLORS: std::cell::Cell<Option<DefaultColors>> = const {
+@@ -195,6 +233,16 @@ mod imp {
+         }
+     }
+ 
++    pub(super) fn update_default_colors(colors: DefaultColors) -> bool {
++        let Ok(mut cache) = default_colors_cache().lock() else {
++            return false;
++        };
++        let changed = cache.value != Some(colors);
++        cache.value = Some(colors);
++        cache.attempted = true;
++        changed
++    }
++
+     /// Queries terminal default colors through the bounded startup probe path.
+     ///
+     /// The palette cache treats `None` as an attempted-but-unavailable result, so this function
+@@ -219,6 +267,10 @@ mod imp {
+         None
+     }
+ 
++    pub(super) fn update_default_colors(_colors: DefaultColors) -> bool {
++        false
++    }
++
+     #[cfg(any(unix, windows))]
+     pub(super) fn set_default_colors_from_startup_probe(
+         _colors: Option<crate::terminal_probe::DefaultColors>,
+@@ -554,3 +606,47 @@ mod tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod live_palette_tests {
++    use super::*;
++
++    #[test]
++    fn color_pair_is_atomic_and_accepts_either_reply_order() {
++        let mut refresh = PaletteRefresh::default();
++        assert_eq!(refresh.accept(11, Some((238, 240, 228))), None);
++        assert_eq!(
++            refresh.accept(10, Some((42, 51, 41))),
++            Some(DefaultColors {
++                fg: (42, 51, 41),
++                bg: (238, 240, 228)
++            })
++        );
++        assert_eq!(refresh.accept(10, Some((212, 210, 226))), None);
++        assert_eq!(
++            refresh.accept(11, Some((30, 34, 51))),
++            Some(DefaultColors {
++                fg: (212, 210, 226),
++                bg: (30, 34, 51)
++            })
++        );
++    }
++
++    #[test]
++    fn incomplete_or_invalid_replies_do_not_publish_a_palette() {
++        let mut refresh = PaletteRefresh::default();
++        assert_eq!(refresh.accept(10, Some((42, 51, 41))), None);
++        assert_eq!(refresh.accept(11, None), None);
++        assert_eq!(refresh.accept(4, Some((0, 0, 0))), None);
++        // A new query drops an incomplete pair before accepting another generation.
++        refresh = PaletteRefresh::default();
++        assert_eq!(refresh.accept(11, Some((30, 34, 51))), None);
++        assert_eq!(
++            refresh.accept(10, Some((212, 210, 226))),
++            Some(DefaultColors {
++                fg: (212, 210, 226),
++                bg: (30, 34, 51)
++            })
++        );
++    }
++}
+diff --git a/codex-rs/tui/src/tui/event_stream.rs b/codex-rs/tui/src/tui/event_stream.rs
+index 3ed439e..b117182 100644
+--- a/codex-rs/tui/src/tui/event_stream.rs
++++ b/codex-rs/tui/src/tui/event_stream.rs
+@@ -178,6 +178,10 @@ pub struct TuiEventStream<S: EventSource + Default + Unpin = CrosstermEventSourc
+     terminal_focused: Arc<AtomicBool>,
+     poll_draw_first: bool,
+     #[cfg(unix)]
++    palette_tick: tokio::time::Interval,
++    #[cfg(unix)]
++    palette_refresh: crate::terminal_palette::PaletteRefresh,
++    #[cfg(unix)]
+     suspend_context: crate::tui::job_control::SuspendContext,
+     #[cfg(unix)]
+     alt_screen_active: Arc<AtomicBool>,
+@@ -192,6 +196,13 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
+         #[cfg(unix)] alt_screen_active: Arc<AtomicBool>,
+     ) -> Self {
+         let resume_stream = WatchStream::from_changes(broker.resume_events_rx());
++        #[cfg(unix)]
++        let mut palette_tick = tokio::time::interval_at(
++            tokio::time::Instant::now() + std::time::Duration::from_secs(1),
++            std::time::Duration::from_secs(1),
++        );
++        #[cfg(unix)]
++        palette_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+         Self {
+             broker,
+             draw_stream: BroadcastStream::new(draw_rx),
+@@ -199,12 +210,38 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
+             terminal_focused,
+             poll_draw_first: false,
+             #[cfg(unix)]
++            palette_tick,
++            #[cfg(unix)]
++            palette_refresh: Default::default(),
++            #[cfg(unix)]
+             suspend_context,
+             #[cfg(unix)]
+             alt_screen_active,
+         }
+     }
+ 
++    /// Write queries only. Replies are decoded by the existing crossterm input reader.
++    #[cfg(unix)]
++    fn request_default_colors(&mut self) {
++        let state = self
++            .broker
++            .state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if !matches!(*state, EventBrokerState::Running(_)) {
++            return;
++        }
++        self.palette_refresh = Default::default();
++        #[cfg(not(test))]
++        {
++            use std::io::Write;
++            let mut stdout = std::io::stdout().lock();
++            let _ = stdout
++                .write_all(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\")
++                .and_then(|_| stdout.flush());
++        }
++    }
++
+     /// Poll the shared crossterm stream for the next mapped `TuiEvent`.
+     ///
+     /// This skips events we don't use and keeps polling until it yields
+@@ -302,10 +339,15 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
+                 Some(TuiEvent::Resize(size))
+             }
+             Event::Paste(pasted) => Some(TuiEvent::Paste(pasted)),
++            #[cfg(unix)]
++            Event::TerminalColor { slot, rgb } => {
++                let colors = self.palette_refresh.accept(slot, rgb)?;
++                crate::terminal_palette::update_default_colors(colors).then_some(TuiEvent::Draw)
++            }
+             Event::FocusGained => {
+                 self.terminal_focused.store(true, Ordering::Relaxed);
+-                // Keep the startup-cached palette: querying terminal colors here blocks the
+-                // input loop, and a direct probe would discard keys typed during the refresh.
++                #[cfg(unix)]
++                self.request_default_colors();
+                 Some(TuiEvent::FocusGained)
+             }
+             Event::FocusLost => {
+@@ -323,6 +365,10 @@ impl<S: EventSource + Default + Unpin> Stream for TuiEventStream<S> {
+     type Item = TuiEvent;
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
++        #[cfg(unix)]
++        if self.palette_tick.poll_tick(cx).is_ready() {
++            self.request_default_colors();
++        }
+         // approximate fairness + no starvation via round-robin.
+         let draw_first = self.poll_draw_first;
+         self.poll_draw_first = !self.poll_draw_first;
+@@ -645,4 +691,27 @@ mod tests {
+             other => panic!("expected key event, got {other:?}"),
+         }
+     }
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn live_color_replies_preserve_keys_and_bracketed_paste() {
++        let broker = Arc::new(EventBroker::new());
++        let handle = FakeEventSourceHandle::new(broker.clone());
++        let (_draw_tx, draw_rx) = broadcast::channel(16);
++        let mut stream = make_stream(broker.clone(), draw_rx, Arc::new(AtomicBool::new(true)));
++        let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
++        handle.send(Ok(Event::TerminalColor {
++            slot: 10,
++            rgb: Some((42, 51, 41)),
++        }));
++        handle.send(Ok(Event::Key(key)));
++        handle.send(Ok(Event::Paste("keep this paste".into())));
++        handle.send(Ok(Event::TerminalColor {
++            slot: 11,
++            rgb: Some((238, 240, 228)),
++        }));
++        assert!(matches!(stream.next().await, Some(TuiEvent::Key(actual)) if actual == key));
++        assert!(
++            matches!(stream.next().await, Some(TuiEvent::Paste(text)) if text == "keep this paste")
++        );
++    }
+ }

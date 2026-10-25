@@ -1,0 +1,376 @@
+{
+  "objective": "Finish all 28 requested optimizations",
+  "items": [
+    {
+      "id": 1,
+      "name": "Handoff brief",
+      "acceptance": "Inline request, change and decision with evidence; omit redundant summaries.",
+      "status": "verified and deployed",
+      "evidence": [
+        "Firefox/Chromium /tmp/hub-brief-qa.cjs: exact native/terminal source jumps, working/short/visible-source suppression, 320/390/1440 layouts, zero agent commands or JS errors",
+        "Full local suite: 238 Python and 92 JavaScript tests pass; subsequent compact-source changes passed 17 relevant Python and four brief JS tests",
+        "Both hosts: /nix/store/yih36zd6ic1w17lsd98ca9d3i5q2f47s-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Reply and move on",
+      "acceptance": "Explicit send-and-next waits for delivery, handles only that turn.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_workflow.py: reply-next waits for delivery, rejects changed handoffs, keeps newer turns pending, deduplicates retries",
+        "Firefox/Chromium /tmp/hub-delivery-qa.cjs: reload without resending, old output not a new reply, failed draft recovery, delivery-gated navigation, manual selection and new draft preservation, no overflow/JS errors",
+        "Full local suite: 219 Python and 85 JavaScript tests pass",
+        "Both hosts: /nix/store/qqjrrrh2fps010xmfkcv73yd2shnv2ky-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Artifact review",
+      "acceptance": "Related generated assets grouped and comparable within the relevant reply.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_artifacts.cjs: adjacent local assets group without crossing prose/headings; duplicate paths preserve their first label; unsafe/external/code links stay excluded; text is escaped and all files remain reachable; full JavaScript suite passes 109 tests",
+        "Firefox/Chromium /tmp/hub-artifact-qa.cjs: compact cards, mobile A/B and desktop side-by-side comparison, exact source protected while open, expansion retained during live updates, lazy video, hidden mobile video paused, close on source removal; no agent commands, JavaScript errors or overflow",
+        "Both hosts: /nix/store/467lj71xiibcs4dgh2b8a19ijz89gm8a-agent-hub-service; HTTPS artifact bundle verified, deployed Firefox/Chromium audit has no errors, overflow or routine state/preview polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Device continuity",
+      "acceptance": "Explicit continue-here restores task, bookmark and draft without moving other clients.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_continuity.py: private durable checkpoints, stale/out-of-order saves, independent tabs, bounded retention, missing agents, exact target validation, Unicode drafts, HTTP host/origin/CSRF boundaries and no-store responses",
+        "test_continuity.cjs: coalesced ordered saves, offline recovery, paragraph-relative reading across screen widths, and per-tab draft persistence without overwriting another tab's edits",
+        "test_federation.py: drafts excluded from snapshots and peer journals; worker browser endpoints disabled and worker credentials denied at controller endpoints",
+        "Firefox/Chromium /tmp/hub-continuity-qa.cjs: explicit task/paragraph/draft restore, agent and supervisor context, other tabs unchanged through reload, draft conflict choice and recovery, empty source preserves local draft, late chooser responses ignored, microphone remains off, 320/390/1440 widths without overflow, zero agent commands or JavaScript errors",
+        "276 Python and 114 JavaScript tests pass; final bookmark-scope adjustment passed six relevant Python tests and all JavaScript tests; Firefox history regression keeps bounded pages, section jumps, text selection and video playback",
+        "Both hosts: /nix/store/78hvq3428zx08n0hc5hgb7xh0giijvsb-agent-hub-service; HTTPS controller endpoint available and worker endpoint disabled; deployed Firefox/Chromium audit passes without errors, overflow or routine state/preview polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Attention-aware notifications",
+      "acceptance": "Visible/spoken handoffs suppress redundant pushes; exact-turn deep links.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_notifications.py: exact seen/heard receipts, pre-emission speech, restart persistence, read-not-handled, immutable reply anchors, old update retrieval, uncertain push acknowledgments and stable batch identity after partial handling",
+        "Firefox/Chromium /tmp/hub-attention-qa.cjs: offscreen replies still push; visible replies and completed speech suppress only their turn; interrupted speech stays pending; exact old reply jumps; changed/missing sources and same-window push links open the original update; 320/390/1440 layouts; no agent commands or JS errors",
+        "Full local suite: 259 Python, 98 JavaScript and seven push relay tests pass",
+        "Both hubs: /nix/store/741d4gd7lyvs1j4557l75slv08k698iy-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; exact notification GET works; GPU sees only gpu-004",
+        "Public relay: /nix/store/9zj8yqs54igbi0wlad44gwr6ksrpynsy-agent-hub-push, built on that server; scoped service restart with rollback backup; HTTPS enrollment page and private HTTPS hub destination verified; no actual push sent by tests"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Related review ordering",
+      "acceptance": "Group equal-priority handoffs by current project; preserve explicit priority.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_routing.cjs: same-project ordering, priority/urgency, explicit passes",
+        "test_projects.py: subdirectories, worktrees, remote clones, home-directory exclusion",
+        "Firefox/Chromium /tmp/hub-goal28-workflow-qa.cjs: related review navigation",
+        "Both hosts: /nix/store/czpfz2s12qs9j03wzgcfnwvjjpblzdr2-agent-hub-service; 211 Python and 81 JS tests pass; deployed Firefox/Chromium audit: zero JS errors, overflow or routine state/preview polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Navigation actions",
+      "acceptance": "Command search supports rename, refresh, pause and previous conversation.",
+      "status": "verified and deployed",
+      "evidence": [
+        "Firefox/Chromium /tmp/hub-goal28-workflow-qa.cjs: keyboard action search, rename, refresh, previous view and pause availability",
+        "Both hosts: /nix/store/czpfz2s12qs9j03wzgcfnwvjjpblzdr2-agent-hub-service; 211 Python and 81 JS tests pass; deployed Firefox/Chromium audit: zero JS errors, overflow or routine state/preview polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Queue editing",
+      "acceptance": "Edit/cancel native queued inputs where safely supported, distinguish executing work.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_native_runtime.py: actual isolated Codex 0.162.1 edits/deletes pending inputs and rejects removed/executing IDs using an inert local provider and temporary credential-free home",
+        "Firefox/Chromium /tmp/hub-native-queue-qa.cjs: edit/remove, Enter/Shift Enter, drafts during output/disconnect, changed/consumed guards, attachment preservation, controls visible at keyboard-sized 390x420, 320/390/1440 layouts, exactly two fixture actions and no new work",
+        "Full packaged environment: 254 Python and 95 JavaScript tests pass, including real isolated Codex queue and private Unix WebSocket integration",
+        "Both hosts: /nix/store/ag5wzr036s74pk8p6yzycdiffwqv28bm-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004",
+        "Read-only deployed previews on both hosts expose structured native status and queues only for uniquely matched sessions; unmatched sessions keep terminal fallback; no existing inputs were changed"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Inline approvals",
+      "acceptance": "Exact-request approval actions on runtimes with reliable support.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_approvals.py: exact request and evidence digests, pane/thread verification, stale/disconnected/externally resolved decisions, once/turn scope only and no retry after lost confirmation",
+        "test_approval_runtime.py: actual isolated Codex command/file approvals replay across reconnects; full live diffs, unchanged configuration and connected terminal owner; model provider stays localhost",
+        "test_federation.py: controller approval reaches the worker once with no reverse access",
+        "Firefox/Chromium /tmp/hub-approval-qa.cjs: complete command/diff evidence, escaped markup, offline controls disabled, incomplete requests cannot be approved, changed-agent guard, 320/390/1440 layouts and zero JS errors",
+        "267 Python and 98 JS tests pass; later presentation/expiry fixes passed 34 relevant tests",
+        "Both hosts: /nix/store/ik2jpdjj04pfyzzj5gjq4wig98viwwvq-agent-hub-service; GPU sees only gpu-004; deployed Firefox and Chromium audit passes without JS errors, overflow or routine polling"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Change-triggered updates",
+      "acceptance": "Persistent browser updates, replay/catch-up, fallback and reconnect.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_live.py: replay/reset and HTTP stream tests",
+        "test_live.cjs: replay and stale recipient tests",
+        "Firefox/Chromium /tmp/hub-goal28-live-qa.cjs: 20/22 ms fixture delivery, no steady polling",
+        "Both hosts: /nix/store/wkcwrravrdxvsyh8pfhyvdxgbbmxn7yj-agent-hub-service; 207 Python and 80 JS tests pass; Firefox/Chromium live audit: no JS errors or overflow"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Incremental transcripts",
+      "acceptance": "Parse appended bytes, separate short/history caches, handle rewrites and rotation.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_transcripts.py: independent caches, partial writes, growth, truncation, rotation, append read budget",
+        "Both hosts: /nix/store/wkcwrravrdxvsyh8pfhyvdxgbbmxn7yj-agent-hub-service; 207 Python and 80 JS tests pass; Firefox/Chromium live audit: no JS errors or overflow"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Structured status",
+      "acceptance": "Use validated lifecycle events where available, conservative terminal fallback.",
+      "status": "verified and deployed",
+      "evidence": [
+        "Native metadata requires a unique visible transcript match plus exact UUID/cwd/log path; shared daemon hints cannot authorize a match",
+        "test_native.py and test_transcripts.py: active/approval/user-input/error states, idle-not-completion, unknown/disconnected fallback, ownership/socket permissions, mismatch rejection and ambiguous-session exclusion",
+        "Full packaged environment: 254 Python and 95 JavaScript tests pass, including real isolated Codex queue and private Unix WebSocket integration",
+        "Both hosts: /nix/store/ag5wzr036s74pk8p6yzycdiffwqv28bm-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004",
+        "Read-only deployed previews on both hosts expose structured native status and queues only for uniquely matched sessions; unmatched sessions keep terminal fallback; no existing inputs were changed"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Compact host updates",
+      "acceptance": "Versioned controller-initiated peer snapshots and previews; preserve isolation.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_federation.py: compact worker snapshots/previews, cache reset, legacy peers, worker isolation",
+        "test_updates.py: Unicode/array delta roundtrip",
+        "Both hosts: /nix/store/wkcwrravrdxvsyh8pfhyvdxgbbmxn7yj-agent-hub-service; 207 Python and 80 JS tests pass; Firefox/Chromium live audit: no JS errors or overflow",
+        "Live unchanged snapshot 9185 -> 133 bytes; preview 254858 -> 102 bytes; GPU worker sees only gpu-004"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Shared work",
+      "acceptance": "Coalesce preview reads and coordinate browser tabs/live microphone ownership.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_live.py: concurrent loads and refresh invalidation",
+        "test_live.cjs: shared tab stream and microphone exclusivity",
+        "Firefox/Chromium /tmp/hub-goal28-live-qa.cjs: two tabs, distinct conversations, leader closure, Web Locks",
+        "Both hosts: /nix/store/wkcwrravrdxvsyh8pfhyvdxgbbmxn7yj-agent-hub-service; 207 Python and 80 JS tests pass; Firefox/Chromium live audit: no JS errors or overflow"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Progressive history",
+      "acceptance": "Page older available turns with bounded rendering and stable selection/media.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_history.cjs: bounded latest/older/newer pages reach every available entry, character budgets never skip long replies, appends preserve the reading window and exact source jumps, explicit progress vs final/user text, visible pending decisions",
+        "test_transcripts.py: structured reasoning and sidechains excluded, Claude tool-use metadata marks progress, repeated identical user text has distinct message identities",
+        "Firefox/Chromium /tmp/hub-history-qa.cjs: 346-message fixture renders at most 32 conversation entries; 105 progress notes stay closed and expand 12 at a time; long mobile answer starts 8 px below reader edge; section links, exact jumps, stable scroll anchor, text selection and real video playback/paused position; no agent commands, JS errors or horizontal overflow at 320/390/1440",
+        "269 Python and 104 JavaScript tests pass; existing 200-message / 16-MB source limit is documented",
+        "Both hosts: /nix/store/d6yg190vzrig7nykzj7v6x31jzppzgy1-agent-hub-service; deployed Firefox/Chromium audit and isolated GPU visibility verified",
+        "2026-10-13 mobile reader: original opening plus Read full reply and reading time; agent and supervisor replies; desktop remains expanded; section navigation, cross-width paragraph restoration, exact text/numbering/markup preservation, hidden media pause; commentary-channel progress and reasoning filtering in every reader mode",
+        "Mobile revision: 277 Python and 116 JavaScript tests pass on reviewed release; Firefox/Chromium /tmp/hub-mobile-reply-qa.cjs verifies compact/expanded layouts, keyboard operation, complete rich content, stable selection/media, source jumps, paging, resize and reading bookmarks at 320/390/1440, with no errors or agent commands",
+        "Mobile revision deployed to both hosts: /nix/store/a3qy6dkg0liljwlcdizixf4z46mbga8j-agent-hub-service. Built from the previous production source plus the reviewed reader changes (/tmp/hub-mobile-release-degiogus); archive search stays unreleased. HTTPS asset hashes match; deployed Firefox/Chromium audit on both hosts has no errors, horizontal overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Static asset caching",
+      "acceptance": "Versioned assets with cache reuse and reliable deployment invalidation.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_static_assets.py: conditional GET, deployment URL changes, private response policy",
+        "Firefox/Chromium /tmp/hub-goal28-live-qa.cjs: versioned scripts, fonts, lazy Mermaid and math",
+        "Both hosts: /nix/store/wkcwrravrdxvsyh8pfhyvdxgbbmxn7yj-agent-hub-service; 207 Python and 80 JS tests pass; Firefox/Chromium live audit: no JS errors or overflow"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Media derivatives",
+      "acceptance": "Bounded on-demand thumbnails/posters; originals remain available.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_thumbnails.py: exact source invalidation, bounded cache, outside-project symlinks/FIFO/oversized inputs, source changes during generation, decode budgets, HTTP 304 and real image/video WebP output",
+        "test_federation.py: worker creates its own preview with no reverse access; wrong-host requests and worker credentials at controller are rejected",
+        "Firefox/Chromium /tmp/hub-thumbnail-qa.cjs: no movie request before play, 640x400 image, 8434-byte poster, original link and playback position preserved, 320/390/1440 layouts, no agent commands or JS errors",
+        "Synthetic 1600x1000 RGB noise profile: 4802528 -> 97656 bytes; fresh 85.7 ms, cached 0.14 ms",
+        "Read-only deployed real artifact check: gpu-004 9270-byte preview in 201.9 ms, conditional 304 in 11.6 ms; razy 35666 bytes in 103.3 ms, conditional 304 in 1.3 ms",
+        "Full local suite: 245 Python and 93 JavaScript tests pass, including actual packaged FFmpeg integration",
+        "Both hosts: /nix/store/qiivg5f54g7m6i18syx8ygq03xs2vh3b-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Archive search",
+      "acceptance": "Incremental local visible-message/artifact index with ended sessions and exact jumps.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_archive.py and test_archive_http.py: incremental append/restart/replace/move, shared native IDs, partial/oversized records, per-message cwd and all file references, bounded pages and complete long-message parts, saved copies, nonblocking live bindings, literal search cursors, peer metadata and host/client/CSRF isolation; 294 Python and 116 JavaScript tests pass; final record-header guard passes all 17 archive tests",
+        "Firefox/Chromium /tmp/hub-archive-qa.cjs: 96 ended-session messages, exact/deep/source jumps, hidden progress/long replies, same filename across projects, real video after pane closure, paging protection, stale query rejection, copied current-page links and refresh, 320/390/1440 widths; zero agent commands, errors or overflow",
+        "Read-only full-log profile: razy 416 logs / 2.55 GB, 45431 visible messages, 39.42 seconds, 58.0 MiB peak RSS and 48.3 MiB cache; gpu-004 119 logs / 10.21 GB, 20801 messages, 45.28 seconds, 66.1 MiB peak RSS and 17.3 MiB cache. Zero skipped records; unchanged passes reread zero bytes; sampled queries 1.42\u20137.08 ms. Verified private indexes seed production without another full scan.",
+        "Both hosts: /nix/store/2hjqj09rp07w1na0scngp4dr6n02h0ns-agent-hub-service. HTTPS asset hashes match; real searches open exact messages with host/session/message file identities. Deployed Firefox/Chromium searches pass on both hosts at mobile/desktop widths with no JS errors, overflow, microphone activation or agent commands. GPU lists and serves only gpu-004; reverse archive request denied."
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Exact local routing",
+      "acceptance": "Unique exact destination skips model call; ambiguous/descriptive requests do not.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_routing.py: exact destinations use zero model calls/history reads; ambiguity, descriptions and unavailable agents stay guarded",
+        "Both hosts: /nix/store/czpfz2s12qs9j03wzgcfnwvjjpblzdr2-agent-hub-service; 211 Python and 81 JS tests pass; deployed Firefox/Chromium audit: zero JS errors, overflow or routine state/preview polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Verified task facts",
+      "acceptance": "Bounded source-linked handoff facts invalidated with source changes.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_task_facts.py: source hashes and exact ranges, new instructions/edits/removals/tool output, host identity, bounded expiring cache and whole-excerpt budgets",
+        "Read-only deployed previews validate against their source messages on both hosts",
+        "Local eight-session profile: fresh 2.14 ms, reuse 1.50 ms, 8948-byte cache; overview at 12000-character budget 21922 -> 16608 serialized bytes",
+        "Full local suite: 238 Python and 92 JavaScript tests pass; subsequent compact-source changes passed 17 relevant Python and four brief JS tests",
+        "Both hosts: /nix/store/yih36zd6ic1w17lsd98ca9d3i5q2f47s-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Earlier speech",
+      "acceptance": "Speak validated complete sentences before full reply; action receipts after execution.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_spoken_reply.py: strict single reply field, complete sentence boundaries/escapes, no reasoning/commentary/unknown-phase early speech, final-prefix validation, disabled MCP configuration; real isolated Codex 0.162.1 uses only a localhost inert provider, exposes no tools, persists no rollout, and never retries a failed model request. GPU runtime independently passes: first sentence 229.5 ms, complete 1045.5 ms.",
+        "test_routing.py: only read-only voice questions stream; queue/other actions and conversation selection remain on the complete response path, with receipts after execution. JavaScript tests cover exact-request/context final-result reconciliation, one-clip prefetch, stale audio cancellation and no synthesis after immediate stop. Full suite: 301 Python and 118 JavaScript tests pass.",
+        "Firefox/Chromium /tmp/hub-spoken-reply-qa.cjs: speech before job completion, repeated events and final text do not repeat audio, one evolving caption, microphone and noise held, stop suppresses later clips, failed reply announced, context/call changes discard old audio, completion snapshot wins safely, 320/390/1440 layouts; five fixture requests, zero agent commands/errors. Repeated with deployed HTTPS assets from each host.",
+        "Real gpt-6.1-sol low and warmed local Kokoro profile /tmp/hub-spoken-profile.py: synthesis began 0.94\u20130.97 s before completion in two short-answer runs; first audio 10.8\u201320.6 s versus one separate complete-response baseline at 10.6 s. Model-time variation dominates this small sample; it does not establish an overall latency win. Browser fixture scheduling was 11\u201329 ms, excluding real synthesis/device latency.",
+        "Both hosts: /nix/store/j9jj4rxh15m1d3lziraw8r2vy68syl0k-agent-hub-service. HTTPS hashes match; deployed read-only Firefox/Chromium audit has no errors, overflow or routine polling. Archive checks still reach exact sources; GPU exposes only gpu-004."
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Speech work priority",
+      "acceptance": "Final ASR outranks obsolete interim work; cancel obsolete pending synthesis.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_speech_work.py: finals precede pending interim requests; superseded work never runs; running stale results discarded; scoped cancellation, late cancel/new reply, cached audio and client bounds",
+        "test_speech.py: exact final audio reuses a running caption without a second model call; cancellation endpoint retains host/origin/client/CSRF checks",
+        "test_voice.cjs and deployed Firefox/Chromium /tmp/hub-speech-priority-qa.cjs: final upload starts in 0\u20130.8 ms of browser scheduling while caption remains unfinished; stale caption ignored, mic held, old audio dropped, next reply preserved; zero JS errors or overflow",
+        "Live local models /tmp/hub-speech-priority-live.py: superseded caption HTTP 409, final HTTP 200 in 1403 ms; new TTS 681 ms, canceled cached request HTTP 409, later cached request HTTP 200 in 1 ms",
+        "Full local suite: 231 Python and 88 JavaScript tests pass",
+        "Both hosts: /nix/store/syz69dkh9n00rzfpw557kall4nw7vw5w-agent-hub-service; asset 91cfc653a159f98c352a705f; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Technical vocabulary",
+      "acceptance": "Evaluate limited task vocabulary and pronunciation hints against baseline.",
+      "status": "verified and deployed",
+      "evidence": [
+        "2026-10-13 profile_vocabulary.py: 20 synthetic instructions, two voices, eight task terms; normalized Whisper errors 11/178 baseline vs 3/178 with vocabulary. Decoder-only controls bypass audio gates and produced 3 vs 7 false words. Numerical and negative instructions retain their meaning.",
+        "Six paired pronunciation variants: baseline 5/52 vs 3/52 errors; vocabulary 0/52 vs 1/52; lowercasing LAP worsened recognition. Synthetic speech does not validate the user accent or perceived naturalness. Existing deployed no-prompt ASR and original TTS spellings retained; no speculative vocabulary changes enabled.",
+        "Reproducible local-only profiler uses temporary workers and the same packaged Whisper/Kokoro models. Detailed synthetic results: /tmp/hub-vocabulary-results.json; conclusions recorded in README. No real agents, microphone, account, or cloud calls."
+      ]
+    },
+    {
+      "id": 24,
+      "name": "End-of-speech tuning",
+      "acceptance": "Measure cadence and completeness, tune without clipping instructions.",
+      "status": "verified and deployed",
+      "evidence": [
+        "profile_endpoint.cjs: 36 labelled cases per setting at 16/44.1/48 kHz; 20 ms packets preserve all speech with 500 ms silence, median/max endpoint 510/515 ms vs 540/594 ms for 2048-sample packets. All 27 brief-noise fixtures rejected vs six sends before. Shorter 350/400 ms thresholds clip instructions, so 500 ms is retained.",
+        "119 JavaScript tests pass, including actual AudioWorklet code with transferred buffers: no sample loss/reordering at 16/44.1/48/96 kHz, Firefox silent-input clock, 450 ms pauses, short-noise rejection and existing call/cancellation tests.",
+        "Firefox/Chromium /tmp/hub-packets-qa.cjs: real WebAudio capture, one fixture instruction across a 450 ms pause, 518/539 ms final scheduling after sound ends, microphone stays gated awaiting the agent and releases on hangup; zero errors. ASR, action and playback endpoints are stubbed in this timing fixture.",
+        "Both hosts: /nix/store/x812w2qqidry4xvxzc9vabwj58zk2ysl-agent-hub-service; HTTPS worklet bytes match reviewed source. Live read-only history/source/asset and directional host-isolation audit passes."
+      ]
+    },
+    {
+      "id": 25,
+      "name": "Phone transitions",
+      "acceptance": "Verify actual Firefox screen-lock/Bluetooth/network transitions; address observed failures.",
+      "status": "verified and deployed",
+      "evidence": [
+        "2026-10-13 user confirmation in response to the requested phone Firefox transition checks: 'audio can resume'. Phone recovery is user-verified; no attached-device trace was recorded.",
+        "2026-10-13 reproduced desktop Firefox audio-state failure: suspended AudioContext still showed Listening with microphone enabled. Added Audio paused state, capture/transcription discard, explicit one-tap resume, closed-context recreation and stale module/event guards; interrupted spoken replies remain marked and do not replay automatically.",
+        "122 JavaScript tests pass. Firefox/Chromium /tmp/hub-audio-transition-qa.cjs verifies real WebAudio suspend/close while listening and speaking, explicit resume, typed-draft preservation, interrupted caption, no late playback, 320/390/1440 widths, zero agent commands or JavaScript errors and one fixture supervisor request. These automated checks cover audio-state handling; hardware transition evidence comes from the user's phone report.",
+        "Audio-state fix deployed to both hosts: /nix/store/h1xhg2450ah2p4dj2p31w2w0vcwnrlql-agent-hub-service. The same Firefox/Chromium transition checks pass using HTTPS assets from razy/gpu-004; live asset/hash/history checks and worker isolation also pass. No attached phone candidate or connected device-debugging tool is available in this workspace."
+      ]
+    },
+    {
+      "id": 26,
+      "name": "Durable delivery UI",
+      "acceptance": "Restore and reconcile browser send state with durable server receipts.",
+      "status": "verified and deployed",
+      "evidence": [
+        "test_delivery.py and test_delivery.cjs: durable receipts, restart recovery, supervisor deduplication, uncertainty, bounded browser persistence",
+        "test_federation.py: lost worker acknowledgment recovered after pane closure without resending or reverse access",
+        "Firefox/Chromium /tmp/hub-delivery-qa.cjs: reload without resending, old output not a new reply, failed draft recovery, delivery-gated navigation, manual selection and new draft preservation, no overflow/JS errors",
+        "Full local suite: 219 Python and 85 JavaScript tests pass",
+        "Both hosts: /nix/store/qqjrrrh2fps010xmfkcv73yd2shnv2ky-agent-hub-service; deployed Firefox/Chromium audit passes without JS errors, overflow or routine polling; GPU sees only gpu-004"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "Controller recovery",
+      "acceptance": "Per user-approved scope change on 2026-10-13: encrypted off-host controller backups, independent recovery-key storage, and tested manual restore that preserves worker isolation; no standby controller or live takeover.",
+      "status": "pending",
+      "evidence": [
+        "controller_backup.py and five tests: live SQLite/WAL snapshots; controller identity/bootstrap validation; private 0600/0700 output; hash, size and database checks; traversal/symlink/tamper/worker-role rejection; non-overwriting offline restore with rebased TLS paths; completed/uncertain delivery receipts retain their semantics.",
+        "2026-10-13 real razy backup: seven files, 52,352,791 bytes. Independent staged restore passes database, role/identity and TLS key/certificate checks. No listener or service started, no ownership/network setting changed and no controller data sent to the GPU. Bundle is private under ~/.local/state/agent-hub/backups; metadata path is /tmp/hub-controller-backup-path.",
+        "Existing explicit trusted-peer handoff tests pass, including durable revocation, stale-authority rejection and lost acknowledgement. Deployment to a second trusted controller remains pending a selected, reachable trusted host. A backup kept only on razy does not protect against losing razy.",
+        "2026-10-13 user confirms gcs-b2-workstation will not return; it is no longer a recovery candidate. Razy and gpu-004 are the only online hub hosts. GPU worker isolation remains required. No standby controller or off-host controller backup has been deployed; choosing encrypted backups with manual restore would change the live-takeover acceptance criterion.",
+        "2026-10-13 user approved encrypted off-host backups with manual restore after retiring gcs-b2. This explicitly replaces the second-controller/live-takeover deployment requirement; existing handoff support is unchanged.",
+        "Encrypted restic repository created on gpu-004 via a dedicated pinned-host, SFTP-only login with no agent forwarding or reverse controller access. First live snapshot: seven files / 52,590,359 plaintext bytes, about 18 MB encrypted storage. Upload, downloaded offline restore, and an independent exported-kit-only restore all passed; TLS certificate/key match; no service or agent action was started by restore.",
+        "Deployed recovery UI on both hosts: /nix/store/vah9p7qdm0bs64ydxmjfqqrymlvlfdy9-agent-hub-service. Controller key export requires an explicit CSRF-protected HTTPS or loopback POST; peer credentials and workers are denied. Firefox/Chromium 320/390/1440 checks pass using deployed assets, including download, separate saved-elsewhere confirmation, no background recovery polling, 44-pixel targets, no overflow, zero agent commands and JavaScript errors.",
+        "Controller-only 15-minute systemd timer deployed as /nix/store/6qpc4li0j20vhm7p18yi98p5qprsngdx-agent-hub-backup-service. The first systemd run correctly stopped before upload when GPU free space fell to about 292 MB; the prior verified snapshot remains intact. Reliable scheduled backups still need storage headroom or a different destination.",
+        "Remaining: confirm the recovery download is saved independently of razy; resolve storage capacity and verify a successful systemd backup run. Milkyway has about 13 GB available and was offered as an alternative encrypted-storage host.",
+        "Current regression checks: 322 Python tests passed; the six TLS tests initially lacked openssl on the test runner PATH and passed when rerun with the packaged OpenSSL. All 124 JavaScript tests pass. The new encryption suite covers actual restic encryption/restore, independent kit recovery, retained delivery receipts, wrong-key/repository rejection, low-space and failed-upload guards, private permissions, run locks, and browser/peer/worker access boundaries. HTTPS recovery download matches the private kit and does not claim the key was saved elsewhere."
+      ]
+    },
+    {
+      "id": 28,
+      "name": "Interaction measurements",
+      "acceptance": "End-to-end latency and interruption/host-loss tests with duplicate-send assertions.",
+      "status": "verified and deployed",
+      "evidence": [
+        "Firefox/Chromium full voice path with real local ASR/TTS and isolated gpt-6.1-sol low on fixed synthetic facts: clip end to first audio 9,996/12,904 ms, final upload to first audio 9,610/12,493 ms; model 9,028/11,661 ms; final ASR reused caption at 0 ms. Exactly one supervisor request per run, zero agent commands or JavaScript errors; microphone gated through playback and released on hangup. Two warm local runs, not a phone/network latency guarantee. Results /tmp/hub-e2e-results-{firefox,chromium}.json.",
+        "37 relevant Python tests pass: actual local HTTP worker/controller shutdown and restart, dropped worker acknowledgement across controller restart, local monitoring during outage, no offline queue, immutable durable receipts, no reverse worker callbacks; subprocess os._exit after a side effect and after receipt commit prove uncertain/complete recovery does not repeat execution.",
+        "119 JavaScript tests pass. Existing Firefox/Chromium delivery and spoken-reply fixtures verify reload/replay duplicate suppression, changed context and ended-call guards, stopping pending/playing audio and generation failures. Current packet fixture verifies real AudioWorklet timing and call gating in both browsers.",
+        "Current deployment on both hosts: /nix/store/x812w2qqidry4xvxzc9vabwj58zk2ysl-agent-hub-service; reviewed asset hashes and live directional isolation checks pass. No production agent was used for measurement or failure injection."
+      ]
+    }
+  ],
+  "reported_fixes": [
+    {
+      "name": "Repeated CLI quota notices and recaps",
+      "status": "verified and deployed",
+      "evidence": [
+        "Shared terminal-notices-fixtures.json exercises reader/backend parity, wrapped recaps, quota footers, repeated warnings, preserved code/tool/user examples and genuine quota/capacity errors",
+        "test_notifications.py confirms repeated nags do not delay handoff settling or create new update evidence; test_transcripts.py rejects recap-only session matches; test_terminal_notices.py excludes recaps from project lookup facts",
+        "Read-only live captures: no remaining recognized quota/recap rows after filtering; usage and claude_usage remain present on both connections",
+        "Deployed Firefox/Chromium /tmp/hub-notices-audit.cjs: parser verified, zero JS errors or overflow, no routine state/preview polling over 12 seconds",
+        "Included in /nix/store/syz69dkh9n00rzfpw557kall4nw7vw5w-agent-hub-service on both hosts"
+      ]
+    },
+    {
+      "name": "Long mobile replies and progress-note clutter",
+      "status": "verified and deployed",
+      "evidence": [
+        "Structured progress collapses separately; full final replies retain original wording and Markdown. Mobile opens long replies at their beginning; section links and bounded code regions reduce navigation cost. Pending questions remain visible. See progressive history #15 tests and deployment."
+      ]
+    }
+  ]
+}
