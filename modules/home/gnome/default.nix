@@ -126,7 +126,7 @@ in {
         [ -f "$current" ] || exit 0
         for stale in "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/.mutter-Xwaylandauth.*; do
           [ -f "$stale" ] && [ "$stale" != "$current" ] || continue
-          ${pkgs.xorg.xauth}/bin/xauth -f "$current" nlist | ${pkgs.xorg.xauth}/bin/xauth -f "$stale" nmerge - 2>/dev/null
+          ${pkgs.xauth}/bin/xauth -f "$current" nlist | ${pkgs.xauth}/bin/xauth -f "$stale" nmerge - 2>/dev/null
         done
         exit 0
       '');
