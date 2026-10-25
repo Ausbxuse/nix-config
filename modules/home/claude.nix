@@ -20,7 +20,9 @@
   # ctrl+shift variants distinct), except for the prefix itself.
   #
   # Claude Code hardcodes ctrl+c / ctrl+d / ctrl+m, so vi's ctrl+d half-page
-  # scroll is impossible; ctrl+v stands in for it.
+  # scroll is impossible; ctrl+v stands in for it in the Transcript, and
+  # ctrl+x v in Scroll, which shares focus with the prompt: ctrl+v there
+  # swallowed chat:imagePaste, so images could not be pasted.
   keybindings = {
     "$schema" = "https://www.schemastore.org/claude-code-keybindings.json";
     "$docs" = "https://code.claude.com/docs/en/keybindings";
@@ -77,7 +79,7 @@
           "ctrl+e" = "scroll:lineDown";
           "ctrl+y" = "scroll:lineUp";
           "ctrl+u" = "scroll:halfPageUp";
-          "ctrl+v" = "scroll:halfPageDown";
+          "ctrl+x v" = "scroll:halfPageDown";
           "ctrl+b" = "scroll:fullPageUp";
         };
       }
@@ -183,5 +185,76 @@ in {
     # let activation replace it rather than abort with "existing file is in
     # the way".
     force = true;
+  };
+
+  # Claude Code themes for the snappy terminal palettes. The -ansi bases make
+  # text, accents and syntax highlighting (which always uses ANSI colours) come
+  # from the terminal palette itself; only greys and backgrounds with no ANSI
+  # equivalent are fixed per mode. settings.json selects "custom:snappy"; the
+  # GNOME theme watcher (tmux/theme-watch.sh) copies the matching file over
+  # ~/.claude/themes/snappy.json, which Claude Code reloads live.
+  xdg.dataFile = let
+    ansiAccents = {
+      claude = "ansi:yellow";
+      claudeShimmer = "ansi:yellowBright";
+      suggestion = "ansi:blue";
+      permission = "ansi:blue";
+      permissionShimmer = "ansi:blueBright";
+      remember = "ansi:magenta";
+      success = "ansi:green";
+      error = "ansi:red";
+      warning = "ansi:yellow";
+      warningShimmer = "ansi:yellowBright";
+      merged = "ansi:magenta";
+      planMode = "ansi:cyan";
+      autoAccept = "ansi:magenta";
+      bashBorder = "ansi:magenta";
+      ide = "ansi:blue";
+      fastMode = "ansi:yellow";
+      fastModeShimmer = "ansi:yellowBright";
+    };
+    theme = base: overrides:
+      json.generate "snappy-${base}.json" {
+        name = "Snappy";
+        inherit base;
+        overrides = ansiAccents // overrides;
+      };
+  in {
+    "claude-themes/snappy-dark.json".source = theme "dark-ansi" {
+      inactive = "#868db0";
+      inactiveShimmer = "#a9b1d6";
+      subtle = "#414868";
+      promptBorder = "#565f89";
+      promptBorderShimmer = "#868db0";
+      diffAdded = "#26392c";
+      diffRemoved = "#45262d";
+      diffAddedDimmed = "#232f2b";
+      diffRemovedDimmed = "#33252c";
+      diffAddedWord = "#3a5c3f";
+      diffRemovedWord = "#733a46";
+      userMessageBackground = "#262b3f";
+      userMessageBackgroundHover = "#2d3349";
+      bashMessageBackgroundColor = "#2b2840";
+      memoryBackgroundColor = "#28293f";
+      selectionBg = "#3c4e64";
+    };
+    "claude-themes/snappy-light.json".source = theme "light-ansi" {
+      inactive = "#626B5E";
+      inactiveShimmer = "#7C8576";
+      subtle = "#B9C2AE";
+      promptBorder = "#9AA38F";
+      promptBorderShimmer = "#626B5E";
+      diffAdded = "#D8E8CE";
+      diffRemoved = "#F3DAD6";
+      diffAddedDimmed = "#E3EBDA";
+      diffRemovedDimmed = "#F2E4E1";
+      diffAddedWord = "#B8D9A6";
+      diffRemovedWord = "#EAB4AE";
+      userMessageBackground = "#E3E7D6";
+      userMessageBackgroundHover = "#DADFCB";
+      bashMessageBackgroundColor = "#E8E2E6";
+      memoryBackgroundColor = "#E6E2EA";
+      selectionBg = "#D8E2CC";
+    };
   };
 }

@@ -6,6 +6,7 @@
   ...
 }: let
   isGenericLinux = !(hostDef.nixos.enable or false);
+  loupePackage = config.lib.nixGL.wrap pkgs.loupe;
   # GNOME normally disables User Themes for the unlock-dialog session mode.
   # Re-enabling it after authentication reloads the complete Shell stylesheet
   # and invalidates the full actor tree.  On razy that consumed about 500 ms
@@ -43,10 +44,31 @@
     "user-theme@gnome-shell-extensions.gcampax.github.com"
     "workspace-indicator@gnome-shell-extensions.gcampax.github.com"
   ];
+  # wl-copy/wl-paste through xclip on GNOME, so copying from Claude, Codex or
+  # other terminal tools never maps the wl-clipboard helper window that Forge
+  # auto-splits around (see wl-shim/). Higher priority than wl-clipboard's own
+  # binaries in the profile; elsewhere the shims defer to the real tools.
+  wlClipboardGnomeShim = (lib.hiPrio (pkgs.runCommand "wl-clipboard-gnome-shim" {} ''
+    mkdir -p $out/bin
+    for tool in wl-copy wl-paste; do
+      substitute ${./wl-shim}/$tool $out/bin/$tool \
+        --replace-fail @wlclipboard@ ${pkgs.wl-clipboard} \
+        --replace-fail @xclip@ ${pkgs.xclip} \
+        ${"$"}([ $tool = wl-copy ] && echo --replace-fail @python@ ${pkgs.python3}/bin/python3)
+      chmod +x $out/bin/$tool
+    done
+  ''));
 in {
   imports = [
     ./dconf.nix
+    ./wallpaper.nix
   ];
+
+  # Ubuntu's session bus starts before Nix adds its profile to XDG_DATA_DIRS.
+  # Export Loupe's activation service where that already-running bus can find it.
+  xdg.dataFile."dbus-1/services/org.gnome.Loupe.service" = lib.mkIf isGenericLinux {
+    source = "${loupePackage}/share/dbus-1/services/org.gnome.Loupe.service";
+  };
 
   systemd.user.services.gnome-resume-background = {
     Unit = {
@@ -79,6 +101,85 @@ in {
       WantedBy = ["graphical-session.target"];
     };
   };
+
+  # The tmux server outlives GNOME logins, and mutter writes a fresh Xwayland
+  # cookie file each login. Point tmux at the new display and give the cookie
+  # files older panes still reference the current key, so long-running agents
+  # keep X11 clipboard access (image paste) across a re-login.
+  systemd.user.services.display-env-sync = {
+    Unit = {
+      Description = "Sync the login's display environment into tmux";
+      After = ["graphical-session.target"];
+      PartOf = ["graphical-session.target"];
+    };
+    Service = {
+      Type = "oneshot";
+      ExecStart = toString (pkgs.writeShellScript "display-env-sync" ''
+        set -u
+        session_env=$(${pkgs.systemd}/bin/systemctl --user show-environment)
+        value() { printf '%s\n' "$session_env" | ${pkgs.gnused}/bin/sed -n "s/^$1=//p"; }
+        tmux=${pkgs.tmux}/bin/tmux
+        for var in DISPLAY XAUTHORITY WAYLAND_DISPLAY; do
+          [ -n "$(value "$var")" ] && $tmux set-environment -g "$var" "$(value "$var")" 2>/dev/null
+        done
+        current=$(value XAUTHORITY)
+        [ -f "$current" ] || exit 0
+        for stale in "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/.mutter-Xwaylandauth.*; do
+          [ -f "$stale" ] && [ "$stale" != "$current" ] || continue
+          ${pkgs.xorg.xauth}/bin/xauth -f "$current" nlist | ${pkgs.xorg.xauth}/bin/xauth -f "$stale" nmerge - 2>/dev/null
+        done
+        exit 0
+      '');
+    };
+    Install = {
+      WantedBy = ["graphical-session.target"];
+    };
+  };
+
+  # GNOME has no wlr-data-control, so wl-copy/wl-paste map a tiny helper
+  # window (app_id "wl-clipboard") to take focus; Forge tiled it on every copy
+  # or paste, making the layout flash. Forge rewrites windows.json itself, so
+  # merge a float rule into it instead of owning the file.
+  home.activation.forgeFloatWlClipboard = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    run ${pkgs.python3}/bin/python3 - "$HOME/.config/forge/config/windows.json" <<'EOF'
+    import json, os, sys
+    path = sys.argv[1]
+    if not os.path.exists(path):
+        sys.exit(0)  # Forge writes its defaults on first start; rerun later.
+    with open(path) as f:
+        config = json.load(f)
+    rule = {"wmClass": "wl-clipboard", "mode": "float"}
+    if rule not in config.setdefault("overrides", []):
+        config["overrides"].append(rule)
+        with open(path + ".tmp", "w") as f:
+            json.dump(config, f, indent=4)
+        os.replace(path + ".tmp", path)
+        print("added")
+    EOF
+    # Forge caches overrides; bumping this key makes it reload them live.
+    key=/org/gnome/shell/extensions/forge/window-overrides-reload-trigger
+    count=$(${pkgs.dconf}/bin/dconf read $key | ${pkgs.gawk}/bin/awk '{print $NF}')
+    run ${pkgs.dconf}/bin/dconf write $key "uint32 $(( (''${count:-0} + 1) % 1000000 ))"
+  '';
+
+  # blur-my-shell pipelines. The defaults stay because the dash uses them; the
+  # extra light pipeline frosts the top bar pale in light mode (the default
+  # darkens the wallpaper to 0.6, which turned the light bar grey under its
+  # dark text). The theme watcher (tmux/theme-watch.sh) switches the panel
+  # between pipeline_default and pipeline_panel_light.
+  home.activation.blurMyShellPipelines = lib.hm.dag.entryAfter ["dconfSettings"] (let
+    blur = id: "<{'type': <'native_static_gaussian_blur'>, 'id': <'${id}'>, 'params': <{'unscaled_radius': <30>, 'brightness': <0.6>}>}>";
+    pipelines = "{"
+      + "'pipeline_default': {'name': <'Default'>, 'effects': <[${blur "effect_000000000000"}]>}, "
+      + "'pipeline_default_rounded': {'name': <'Default rounded'>, 'effects': <[${blur "effect_000000000001"}, "
+      + "<{'type': <'corner'>, 'id': <'effect_000000000002'>, 'params': <{'radius': <24>}>}>]>}, "
+      + "'pipeline_panel_light': {'name': <'Panel light'>, 'effects': <["
+      + "<{'type': <'native_static_gaussian_blur'>, 'id': <'effect_panel_light_blur'>, 'params': <{'unscaled_radius': <30>, 'brightness': <1.0>}>}>, "
+      + "<{'type': <'luminosity'>, 'id': <'effect_panel_light_tone'>, 'params': <{'contrast': <0.3>, 'contrast_center': <1.0>, 'saturation_multiplicator': <0.6>}>}>]>}"
+      + "}";
+  in ''
+    run ${pkgs.dconf}/bin/dconf write /org/gnome/shell/extensions/blur-my-shell/pipelines ${lib.escapeShellArg pipelines}
+  '');
 
   systemd.user.services.gnome-monitor-profile = {
     Unit = {
@@ -227,6 +328,7 @@ in {
 
   home.packages = with pkgs;
     [
+    wlClipboardGnomeShim
     capitaine-cursors
     # pinentry
     gnome-monitor-config
@@ -255,8 +357,10 @@ in {
     powertop
     xiccd
     moreutils
-    loupe
-    mpv
+    loupePackage
+    # Nix graphics libraries need the configured nixGL runtime on Ubuntu.
+    # The wrapper also updates mpv.desktop, so xdg-open uses the same runtime.
+    (config.lib.nixGL.wrap mpv)
   ]
   ++ lib.optionals (!isGenericLinux) [
     gnomeShellExtensionsWithPersistentUserTheme

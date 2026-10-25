@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# wl-paste stand-in for GNOME (see wl-copy): read through Xwayland with xclip
+# instead of mapping a focus-grabbing helper window.
+set -euo pipefail
+real=@wlclipboard@/bin/wl-paste
+case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) exec "$real" "$@" ;; esac
+[ -n "${DISPLAY:-}" ] || exec "$real" "$@"
+
+selection=clipboard type= list=0 newline=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p | --primary) selection=primary ;;
+    -t | --type) type=$2; shift ;;
+    --type=*) type=${1#--type=} ;;
+    -l | --list-types) list=1 ;;
+    -n | --no-newline) newline=0 ;;
+    -s | --seat) shift ;;
+    *) exec "$real" "$@" ;;  # --watch and anything else
+  esac
+  shift
+done
+
+xclip() { @xclip@/bin/xclip -selection "$selection" -o "$@"; }
+if [ "$list" = 1 ]; then
+  xclip -t TARGETS | grep -vxE 'TARGETS|TIMESTAMP|MULTIPLE|SAVE_TARGETS' || exit 1
+elif [ -n "$type" ]; then
+  xclip -t "$type"
+else
+  xclip -t UTF8_STRING 2>/dev/null || xclip
+  [ "$newline" = 1 ] && echo
+fi

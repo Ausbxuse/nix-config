@@ -252,6 +252,7 @@ in {
       yta = "yt -x -f bestaudio/best";
       ffmpeg = "ffmpeg -hide_banner";
       gpu = "nvidia-offload";
+      ares = "~/.local/bin/agent-resurrect";
       # ls="eza --long --git --color=always --no-filesize --icons=always --no-user --no-time --no-permissions --sort=date" ;
       l = "eza --git --color=always --no-filesize --icons=always --no-user --no-time --no-permissions --sort=modified --reverse --group-directories-first";
       ls = "eza --long --git --color=always --icons=always --sort=modified --reverse --group-directories-first";

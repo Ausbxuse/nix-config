@@ -225,44 +225,128 @@ sync_paired_terminal_state() {
   set_window_option "$term_window" @agent-updated "${updated:-$(now_epoch)}"
 }
 
-sync_paired_window_name() {
-  local window="${1:-}" workbench_window term_window target_window source_name target_name
+sync_paired_window_name() (
+  local window="${1:-}" mode="${2:-}" workbench_window term_window target_window="" source_name target_name
+  local rename_lock
 
   [[ -n "$window" ]] || return 0
   window_exists "$window" || return 0
-  source_name="$("$tmux_bin" display -p -t "$window" '#{window_name}' 2>/dev/null || true)"
-  [[ -n "$source_name" ]] || return 0
+  source_name="$("$tmux_bin" display -p -t "$window" '#{window_name}' 2>/dev/null)" || return 0
+  # Discard a queued notification if this window has already been renamed
+  # again. This also prevents an old mirror's callback waiting on its own lock.
+  [[ "$mode" != event || "$source_name" == "${3:-}" ]] || return 0
 
-  if is_workbench_window "$window"; then
+  # Pair identity survives a project directory being moved or removed.
+  if [[ -n "$(window_option "$window" @task-root)" ]]; then
     workbench_window="$window"
-    set_window_option "$workbench_window" @task-name "$source_name"
     term_window="$(window_option "$workbench_window" @term-window)"
-    is_paired_terminal_window_for "$term_window" "$workbench_window" || return 0
-    target_window="$term_window"
+    if is_paired_terminal_window_for "$term_window" "$workbench_window"; then
+      target_window="$term_window"
+    fi
   elif is_paired_terminal_window "$window"; then
     term_window="$window"
     workbench_window="$(window_option "$term_window" @workbench-window)"
-    is_workbench_window "$workbench_window" || return 0
+    window_exists "$workbench_window" || return 0
+    [[ -n "$(window_option "$workbench_window" @task-root)" ]] || return 0
     [[ "$(window_option "$workbench_window" @term-window)" == "$term_window" ]] || return 0
-    set_window_option "$workbench_window" @task-name "$source_name"
     target_window="$workbench_window"
   else
     return 0
   fi
 
+  # Mirroring emits another rename event. Ignore acknowledgements of the last
+  # synced name so a delayed event cannot undo a newer rename on the other side.
+  # Pair creation/recovery calls without event mode still repair stale names.
+  if [[ "$mode" == event && "$(window_option "$workbench_window" @task-name)" == "$source_name" ]]; then
+    return 0
+  fi
+
+  # Command and notification hooks can overlap. Serialize by pair on this
+  # tmux server, but acknowledge mirrored events above without taking the lock:
+  # their originating rename command may still be waiting for that hook.
+  rename_lock="workbench-window-name-$workbench_window"
+  "$tmux_bin" wait-for -L "$rename_lock"
+  trap '"$tmux_bin" wait-for -U "$rename_lock" >/dev/null 2>&1 || true' EXIT
+
+  source_name="$("$tmux_bin" display -p -t "$window" '#{window_name}' 2>/dev/null)" || return 0
+  [[ "$mode" != event || "$source_name" == "${3:-}" ]] || return 0
+  if [[ "$mode" == event && "$(window_option "$workbench_window" @task-name)" == "$source_name" ]]; then
+    return 0
+  fi
+  if [[ -n "$target_window" ]]; then
+    is_paired_terminal_window_for "$term_window" "$workbench_window" || return 0
+    [[ "$(window_option "$workbench_window" @term-window)" == "$term_window" ]] || return 0
+  fi
+  set_window_option "$workbench_window" @task-name "$source_name"
+  [[ -n "$target_window" ]] || return 0
+
   target_name="$("$tmux_bin" display -p -t "$target_window" '#{window_name}' 2>/dev/null || true)"
   [[ "$target_name" == "$source_name" ]] ||
-    "$tmux_bin" rename-window -t "$target_window" "$source_name" 2>/dev/null || true
+    "$tmux_bin" rename-window -t "$target_window" -- "$source_name" 2>/dev/null || true
+)
+
+notify_agent_attention() {
+  # Attention goes to the supervisor inbox, not the desktop: one JSON line per
+  # finished / needs-input / failed / canceled transition. A supervising agent
+  # watches the file and relays to the user; the bell still colors the window.
+  local window="$1" state="$2" summary="$3" title where name task pane inbox
+
+  case "$state" in
+    done) title="Agent finished" ;;
+    waiting | needs-input) title="Agent needs your input" ;;
+    blocked | error)
+      case "$summary" in
+        aborted | interrupted | canceled | cancelled) title="Agent canceled" ;;
+        *) title="Agent failed" ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+
+  where="$("$tmux_bin" display -p -t "$window" '#{session_name}:#{window_index}' 2>/dev/null)" || return 0
+  name="$("$tmux_bin" display -p -t "$window" '#{window_name}' 2>/dev/null || true)"
+  pane="$(window_option "$window" @agent-pane)"
+  task="$("$tmux_bin" display -p -t "${pane:-$window}" '#{pane_title}' 2>/dev/null || true)"
+  inbox="${WORKBENCH_AGENT_INBOX:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-inbox/events.jsonl}"
+  mkdir -p "${inbox%/*}" 2>/dev/null || return 0
+  printf '{"ts":"%s","window":"%s","name":"%s","task":"%s","state":"%s","title":"%s","summary":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(json_text "$where")" "$(json_text "$name")" "$(json_text "$task")" \
+    "$(json_text "$state")" "$(json_text "$title")" "$(json_text "$summary")" >>"$inbox" 2>/dev/null || true
 }
 
-set_agent_state_options() {
-  local window="$1" state="$2" summary="$3" updated="$4"
+json_text() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\t'/ }"
+  s="${s//$'\n'/ }"
+  printf '%s' "$s"
+}
+
+set_agent_state_options() (
+  local window="$1" state="$2" summary="$3" updated="$4" previous state_lock
+
+  # Hooks and status polling can report the same transition concurrently.
+  # Serialize the check/write so only one of them sends a desktop alert.
+  state_lock="workbench-agent-state-$window"
+  "$tmux_bin" wait-for -L "$state_lock"
+  trap '"$tmux_bin" wait-for -U "$state_lock" >/dev/null 2>&1 || true' EXIT
+  previous="$(window_option "$window" @agent-state)"
 
   set_window_option "$window" @agent-state "$state"
   set_window_option "$window" @agent-summary "$summary"
   set_window_option "$window" @agent-updated "$updated"
   sync_paired_terminal_state "$window"
-}
+
+  if [[ "$state" != "$previous" ]]; then
+    # Alert once for the agent window, not again for its paired terminal.
+    # Desktop services must not delay agent hooks or tmux status rendering.
+    (
+      trap - EXIT
+      notify_agent_attention "$window" "$state" "$summary"
+    ) </dev/null >/dev/null 2>&1 &
+  fi
+)
 
 heal_workbench_pane() {
   local pane="$1" window="$2" role="$3"
@@ -327,6 +411,7 @@ heal_workbench_window() {
   if [[ "$term_window" == "$window" ]] || ! is_paired_terminal_window_for "$term_window" "$window"; then
     unset_window_option "$window" @term-window
   fi
+  sync_paired_window_name "$window"
 }
 
 safe_key() {
@@ -451,32 +536,6 @@ capture_preview() {
   set_window_option "$window" @agent-preview-file "$file"
 }
 
-classify_state_summary() {
-  local state="$1" summary="$2" lowered
-
-  lowered="${summary,,}"
-  case "$lowered" in
-    *'"type":"task_started"'* | *agent-turn-start* | *turn-start* | *turn_start*)
-      state=running
-      [[ -n "$summary" && "$summary" != \{* ]] || summary=working
-      ;;
-    *'"type":"task_complete"'* | *agent-turn-complete* | *turn-complete* | *turn_complete*)
-      state=done
-      [[ -n "$summary" && "$summary" != \{* ]] || summary="needs review"
-      ;;
-    *'"type":"error"'* | *agent-turn-error* | *turn-error* | *failed* | *failure* | *blocked*)
-      state=blocked
-      [[ -n "$summary" && "$summary" != \{* ]] || summary=blocked
-      ;;
-    *approval* | *permissionrequest* | *permission-request* | *permission_request* | *requires-input* | *needs-input* | *needs_input* | *request_user_input* | *elicitation_request* | *user_attention* | *attention*)
-      state=waiting
-      [[ -n "$summary" && "$summary" != \{* ]] || summary="needs attention"
-      ;;
-  esac
-
-  printf '%s\t%s\n' "$state" "$summary"
-}
-
 set_state() {
   local state="${1:-}" summary target window agent_pane updated owner
   shift || true
@@ -484,12 +543,13 @@ set_state() {
   summary="$(printf '%s' "$summary" | tr '\n' ' ' | cut -c 1-240)"
 
   [[ -n "$state" ]] || fail "usage: workbench.sh state STATE [summary]"
+  # Event producers choose the state. Words in a summary (for example,
+  # "fixed the failed test" or "blocked on your feedback") cannot override it.
   case "$state" in
-    needs-input) state=waiting ;;
-    error) state=blocked ;;
+    needs-input | needs-feedback | needs-help) state=waiting ;;
+    error | failed | failure | canceled | cancelled | aborted | interrupted) state=blocked ;;
     busy) state=running ;;
   esac
-  IFS=$'\t' read -r state summary < <(classify_state_summary "$state" "$summary")
 
   target="${TMUX_WORKBENCH_TARGET_PANE:-${TMUX_PANE:-}}"
   if [[ -n "$target" ]] && pane_exists "$target"; then
@@ -585,7 +645,7 @@ codex_state_from_session() {
         updated="$(now_epoch)"
         break
         ;;
-      *'"type":"request_user_input"'* | *'"type":"elicitation_request"'* | *'"name":"request_user_input"'* | *'"name":"request_permissions"'*)
+      *'"type":"request_user_input"'* | *'"type":"elicitation_request"'* | *'"name":"request_user_input"'* | *'"name":"functions.request_user_input"'* | *'"name":"request_user_input_async"'* | *'"name":"functions.request_user_input_async"'* | *'"name":"request_permissions"'*)
         state=waiting
         summary="needs input"
         updated="$(now_epoch)"
@@ -600,7 +660,7 @@ codex_state_from_session() {
         ;;
       *'"type":"task_complete"'*)
         state=done
-        summary="needs review"
+        summary=finished
         ts="$(printf '%s' "$line" | sed -n 's/.*"completed_at":\([0-9][0-9]*\).*/\1/p')"
         [[ -n "$ts" ]] && updated="$ts"
         break
@@ -608,6 +668,12 @@ codex_state_from_session() {
       *'"type":"turn_aborted"'* | *'"type":"task_aborted"'*)
         state=blocked
         summary=aborted
+        updated="$(now_epoch)"
+        break
+        ;;
+      *'"type":"error"'*)
+        state=blocked
+        summary=error
         updated="$(now_epoch)"
         break
         ;;
@@ -631,16 +697,27 @@ codex_state_from_session() {
 }
 
 codex_state_from_pane() {
-  local pane="$1" capture lowered updated
+  local pane="$1" capture lowered footer updated
 
   [[ -n "$pane" ]] || return 0
   # Only inspect the visible UI. Tool output and scrollback often quote these
   # same phrases, so an unanchored match can keep a finished turn "running".
-  capture="$("$tmux_bin" capture-pane -pJ -t "$pane" 2>/dev/null | tail -n 24 || true)"
+  capture="$("$tmux_bin" capture-pane -pJ -t "$pane" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 32 || true)"
   [[ -n "$capture" ]] || return 0
 
   updated="$(now_epoch)"
   lowered="${capture,,}"
+  # Browser/site permissions use a single-field MCP form: "enter to submit",
+  # unlike multi-field questions' "submit answer/all". Match the live footer
+  # (also when wrapped), ahead of any working indicator behind the dialog.
+  # Restrict this to footer lines so quoted instructions and scrollback do not
+  # keep the window orange after the user has answered.
+  footer="$(printf '%s\n' "$lowered" | tail -n 6)"
+  if [[ "$footer" == *"esc to cancel"* ]] &&
+    printf '%s\n' "$footer" | grep -Eq '^[[:space:]]*(enter to submit( (answer|all))?|press enter to confirm)([[:space:]]+(\||or)[[:space:]]|[[:space:]]*$)'; then
+    printf 'waiting\tneeds attention\t%s\n' "$updated"
+    return
+  fi
   if printf '%s\n' "$lowered" | grep -qE '^[[:space:]]*(› )?(approval requested:|needs your approval|do you want to approve|would you like to (run|apply))|^[[:space:]]*.*enter to submit (answer|all)'; then
     printf 'waiting\tneeds attention\t%s\n' "$updated"
   elif printf '%s\n' "$lowered" | grep -qE '^[[:space:]]*• .*esc to interrupt'; then
@@ -702,7 +779,7 @@ claude_state_from_session() {
         case "$line" in
           *'"stop_reason":"end_turn"'*)
             state=done
-            summary="needs review"
+            summary=finished
             ;;
           *)
             state=running
@@ -736,9 +813,25 @@ claude_state_from_session() {
   printf '%s\t%s\t%s\n' "$state" "$summary" "${updated:-$(now_epoch)}"
 }
 
+# Claude records an Esc interrupt in its transcript but fires no hook for it.
+# It counts only when newer than the last hook event (`since`): a prompt or tool
+# call after it fires a hook and clears it. The record shape, not the phrase,
+# is matched, so tool output that merely quotes the phrase (escaped JSON) does
+# not count.
+claude_interrupted_since() {
+  local file="$1" since="$2" line ts
+
+  [[ -n "$file" && -f "$file" && "$since" =~ ^[0-9]+$ ]] || return 1
+  line="$(tail -n "${WORKBENCH_CLAUDE_TAIL_LINES:-400}" "$file" 2>/dev/null |
+    grep -F '"content":[{"type":"text","text":"[Request interrupted by user' | tail -n 1 || true)"
+  [[ "$line" =~ \"timestamp\":\"([^\"]+)\" ]] || return 1
+  ts="$(date -d "${BASH_REMATCH[1]}" +%s 2>/dev/null || true)"
+  [[ "$ts" =~ ^[0-9]+$ ]] && ((ts >= since))
+}
+
 # Markers verified against claude-code 2.1.x by capturing live panes: the
-# working footer always carries an elapsed/token readout ("... (3m 6s . 4.7k
-# tokens)"). This build has no "esc to interrupt" string.
+# working footer is the spinner verb with an elapsed readout ("✢ Orbiting… (27s
+# · ↓ 1.4k tokens · thought for 7s)"); it does not always end in "tokens)".
 #
 # Idle is matched on the input prompt glyph, not on a footer hint: the hint text
 # rotates ("? for shortcuts", "gh auth login for PR status", "<- for agents"),
@@ -757,7 +850,7 @@ claude_state_from_pane() {
     *"do you want"* | *"don't ask again"* | *"no, and tell claude"*)
       printf 'waiting\tneeds approval\t%s\n' "$updated"
       ;;
-    *"tokens)"*)
+    *"… ("* | *"tokens)"*)
       printf 'running\tworking\t%s\n' "$updated"
       ;;
     *"❯"* | *"? for shortcuts"*)
@@ -819,7 +912,7 @@ agent_state_from_pane() {
 sync_agent_states() {
   local session="${1:-}" stamp now last throttle window pane file state summary updated
   local current_state current_summary current_updated current_scan rescan_after needs_scan changed=0
-  local file_sig current_sig pane_state pane_summary pane_updated hook_pid resume_grace scanned_file
+  local file_sig current_sig pane_state pane_summary pane_updated hook_pid hook_command resume_grace scanned_file
 
   [[ -n "$session" ]] || session="$(current_session 2>/dev/null || true)"
   [[ -n "$session" ]] || return 0
@@ -848,26 +941,31 @@ sync_agent_states() {
     [[ -n "$window" && -n "$pane" ]] || continue
     pane_exists "$pane" || continue
 
-    # Hook-managed windows: claude-notify.sh pushes exact states from Claude
-    # Code's own lifecycle hooks, so pane/transcript scraping would only fight
-    # it. Scrape just enough to catch an interrupt (esc mid-turn emits no hook
-    # event): a bare prompt while hooks say running/waiting means the turn was
-    # cut short. A dead owner pid means claude exited without SessionEnd; drop
-    # the marker and fall through to normal scraping.
+    # Both Codex and Claude use the lifecycle hook. Only Claude needs this
+    # interrupt fallback; parsing Codex's prompt as Claude can incorrectly
+    # mark a working Codex session idle. Codex transcripts also carry input
+    # requests and aborts that its Stop/UserPromptSubmit hooks do not cover.
     hook_pid="$(window_option "$window" @agent-hook-pid)"
     if [[ -n "$hook_pid" ]]; then
       if [[ -d "/proc/$hook_pid" ]]; then
-        if [[ "$current_state" == running || "$current_state" == waiting ]]; then
-          pane_state=""; pane_summary=""; pane_updated=""
-          IFS=$'\t' read -r pane_state pane_summary pane_updated < <(claude_state_from_pane "$pane") || true
-          if [[ "$pane_state" == idle ]]; then
-            set_agent_state_options "$window" idle interrupted "$pane_updated"
+        hook_command="$(cat "/proc/$hook_pid/comm" 2>/dev/null || true)"
+        if [[ "$hook_command" == *codex* ]]; then
+          # Discard an old Claude transcript cached before switching agents.
+          [[ "$file" != *"/.claude/projects/"* ]] || file=""
+        else
+          # Hooks own Claude's state; only an interrupt needs detecting. The
+          # screen cannot tell it apart from work: the input prompt is always
+          # drawn and the spinner text varies.
+          if [[ "$current_state" == running || "$current_state" == waiting ]] &&
+            claude_interrupted_since "$file" "$current_updated"; then
+            set_agent_state_options "$window" blocked interrupted "$(now_epoch)"
             changed=1
           fi
+          continue
         fi
-        continue
+      else
+        unset_window_option "$window" @agent-hook-pid
       fi
-      unset_window_option "$window" @agent-hook-pid
     fi
 
     # A valid cached transcript is read every status update; rediscovering it
@@ -891,8 +989,10 @@ sync_agent_states() {
     if [[ -z "$file" ]]; then
       state=""; summary=""; updated=""
       IFS=$'\t' read -r state summary updated < <(agent_state_from_pane "$pane") || true
-      if [[ -n "$state" && "$state" != "$current_state" && ! ( "$state" == idle && "$current_state" =~ ^(done|blocked)$ ) ]]; then
-        if [[ "$state" == waiting || "$current_state" == running || "$current_state" == done || "$current_state" == idle || -z "$current_state" || "$state" == running && "$current_state" == waiting ]]; then
+      if [[ -n "$state" && "$state" != "$current_state" ]]; then
+        # A bare prompt does not clear a completion, failure or input request,
+        # only a stale "running".
+        if [[ "$state" == waiting || "$state" == running || -z "$current_state" || "$state" == idle && "$current_state" == running ]]; then
           set_agent_state_options "$window" "$state" "$summary" "$updated"
           changed=1
         fi
@@ -907,8 +1007,7 @@ sync_agent_states() {
       if [[ -n "$state" && "$state" != "$current_state" ]] &&
         {
           [[ "$state" == waiting ]] ||
-            [[ "$state" == running && "$current_state" =~ ^(done|idle|ready)$ ]] ||
-            [[ "$state" == running && "$current_state" == waiting && "$current_summary" == "needs attention" ]] ||
+            [[ "$state" == running && "$current_state" =~ ^(done|idle|ready|blocked|error|waiting)$ ]] ||
             [[ "$state" == idle && "$current_state" =~ ^(running|waiting)$ ]]
         }; then
         set_agent_state_options "$window" "$state" "$summary" "$updated"
@@ -1189,6 +1288,7 @@ ensure_paired_terminal_window() {
   if is_paired_terminal_window_for "$term_window" "$window"; then
     mark_paired_terminal_window "$term_window" "$session" "$window" "$root"
     sync_terminal_window_index "$window" "$term_session" "$term_window"
+    sync_paired_window_name "$window"
     printf '%s\n' "$term_window"
     return
   fi
@@ -1201,6 +1301,7 @@ ensure_paired_terminal_window() {
       set_window_option "$window" @term-session "$term_session"
       set_window_option "$window" @term-window "$existing"
       sync_terminal_window_index "$window" "$term_session" "$existing"
+      sync_paired_window_name "$window"
       printf '%s\n' "$existing"
       return
     fi
@@ -1215,6 +1316,7 @@ ensure_paired_terminal_window() {
   set_window_option "$window" @term-session "$term_session"
   set_window_option "$window" @term-window "$term_window"
   sync_terminal_window_index "$window" "$term_session" "$term_window"
+  sync_paired_window_name "$window"
   printf '%s\n' "$term_window"
 }
 
@@ -1319,6 +1421,7 @@ recover_restored_window() {
     mark_paired_terminal_window "$term_window" "$session" "$window" "$root"
     set_window_option "$window" @term-window "$term_window"
     sync_terminal_window_index "$window" "$term_session" "$term_window"
+    sync_paired_window_name "$window"
   else
     unset_window_option "$window" @term-window
   fi
@@ -1911,10 +2014,10 @@ summary() {
 
   if ((waiting + blocked + done + running > 0)); then
     printf 'A:'
-    printf '#[fg=#d6a65d]%sW ' "$waiting"
-    printf '#[fg=#ff5c57]%sB ' "$blocked"
-    printf '#[fg=#9ece6a]%sD ' "$done"
-    printf '#[fg=#5fb3c4]%sR' "$running"
+    printf '#[fg=#e6c27a]%sW ' "$waiting"
+    printf '#[fg=#e38b96]%sB ' "$blocked"
+    printf '#[fg=#a3c88b]%sD ' "$done"
+    printf '#[fg=#8fd3e6]%sR' "$running"
   fi
 }
 
@@ -2012,7 +2115,7 @@ case "$cmd" in
     "$tmux_bin" refresh-client -S 2>/dev/null || true
     ;;
   window-renamed)
-    sync_paired_window_name "${1:-}"
+    sync_paired_window_name "${1:-}" event "${2:-}"
     [[ -z "${1:-}" ]] || bump_window_event "$1"
     "$tmux_bin" refresh-client -S 2>/dev/null || true
     ;;
@@ -2056,7 +2159,7 @@ commands:
   sync [SESSION]
   sync-all
   event [SESSION]
-  window-renamed WINDOW
+  window-renamed WINDOW NAME
   state STATE [summary]
   summary
   status-sync

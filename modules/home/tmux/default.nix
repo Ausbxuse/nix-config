@@ -87,6 +87,7 @@ in {
   '';
 
   home.packages = with pkgs; [
+    libnotify
     lm_sensors
     wl-clipboard
     xsel
@@ -137,6 +138,14 @@ in {
   };
   home.file.".local/bin/tmux/resurrect-workbench-restore.sh" = {
     source = ./resurrect-workbench-restore.sh;
+    executable = true;
+  };
+  home.file.".local/bin/tmux/client-origin.sh" = {
+    source = ./client-origin.sh;
+    executable = true;
+  };
+  home.file.".local/bin/agent-resurrect" = {
+    source = ./agent-resurrect.sh;
     executable = true;
   };
   home.file.".local/bin/tmux/sessionizer.sh" = {
@@ -227,25 +236,27 @@ in {
         payload="$(cat || true)"
       fi
 
-      summary="''${payload:-needs attention}"
+      # Classify the event, not words in the assistant's message or tool output.
+      event="$(printf '%s' "$payload" | ${pkgs.jq}/bin/jq -r '.type // empty' 2>/dev/null || true)"
+      [[ -n "$event" ]] || event="$payload"
+      summary="needs attention"
       state="waiting"
-      lowered="''${summary,,}"
-      case "$lowered" in
-        *'"type":"task_started"'* | *agent-turn-start* | *turn-start* | *turn_start*)
+      case "''${event,,}" in
+        task_started | agent-turn-start | turn-start | turn_start)
           state="running"
-          summary="''${payload:-working}"
+          summary="working"
           ;;
-        *'"type":"task_complete"'* | *agent-turn-complete* | *turn-complete* | *turn_complete*)
+        task_complete | agent-turn-complete | turn-complete | turn_complete)
           state="done"
-          summary="needs review"
+          summary="finished"
           ;;
-        *error* | *failed* | *failure* | *blocked*)
+        turn_aborted | task_aborted | canceled | cancelled | interrupted)
           state="blocked"
-          summary="''${payload:-blocked}"
+          summary="canceled"
           ;;
-        *approval* | *requires-input* | *needs-input* | *needs_input* | *user_attention* | *attention*)
-          state="waiting"
-          summary="''${payload:-needs attention}"
+        error | agent-turn-error | turn-error | failed | failure)
+          state="blocked"
+          summary="failed"
           ;;
       esac
 
@@ -253,6 +264,7 @@ in {
         TMUX_WORKBENCH_TARGET_PANE="$TMUX_PANE" \
           "$HOME/.local/bin/tmux/workbench.sh" state "$state" "$summary" 2>/dev/null || true
 
+        [[ "$state" == waiting || "$state" == blocked ]] || exit 0
         pane_tty="$(tmux display -p -t "$TMUX_PANE" '#{pane_tty}' 2>/dev/null || true)"
         if [[ -n "$pane_tty" && -w "$pane_tty" ]]; then
           printf '\a' > "$pane_tty"
@@ -260,7 +272,8 @@ in {
         fi
       fi
 
-      printf '\a'
+      [[ "$state" == waiting || "$state" == blocked ]] && printf '\a'
+      exit 0
     '';
   };
   home.file.".local/bin/tmux/agent-workflow.sh" = {
@@ -774,22 +787,27 @@ in {
           set -g @resurrect-hook-pre-restore-pane-processes '$HOME/.local/bin/tmux/resurrect-workbench-restore.sh'
           set -g @resurrect-hook-post-restore-all '$HOME/.local/bin/tmux/workbench.sh recover-restored'
           set -g @resurrect-capture-pane-contents 'on'
-          set -g @resurrect-processes 'codex "~codex-raw->codex" "~bin/codex->codex"'
+          # The save hook rewrites agent panes to `codex resume <id>` /
+          # `claude --resume <id>`; plain names replay that command verbatim.
+          set -g @resurrect-processes 'codex claude'
         '';
       }
       {
         plugin = continuum; # needs resurrect present
         extraConfig = ''
             set -g status-interval 2          # keep agent state colors current
-            set -g status-justify centre
+            # absolute-centre: the window list stays put when the left/right
+            # segments change width (path, cpu, battery).
+            set -g status-justify absolute-centre
             set -g status-position top
             set -g status-style 'bg=default'  # transparent background
             set -g status-left-length 50
             set -g status-right-length 48
             set -g status-bg 'default'
-            if-shell 'command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.desktop.interface color-scheme | grep -q prefer-light' \
-              'source-file ~/.config/tmux/theme-light.conf' \
-              'source-file ~/.config/tmux/theme-dark.conf'
+            # GNOME reports light mode as 'default', so test for dark explicitly.
+            if-shell 'command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.desktop.interface color-scheme | grep -q prefer-dark' \
+              'source-file ~/.config/tmux/theme-dark.conf' \
+              'source-file ~/.config/tmux/theme-light.conf'
 
 
             set -g @continuum-restore 'on'

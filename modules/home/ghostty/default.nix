@@ -7,30 +7,115 @@
   ...
 }: let
   useNixGL =
-    pkgs.stdenv.hostPlatform.isx86_64
+    pkgs.stdenv.hostPlatform.isLinux
+    && pkgs.stdenv.hostPlatform.isx86_64
     && !(hostDef.nixos.enable or false);
-  ghosttyBasePackage =
-    if useNixGL
-    then config.lib.nixGL.wrap pkgs.ghostty
-    else pkgs.ghostty;
+  nixGLMesa =
+    (import inputs.nixgl {
+      inherit pkgs;
+      enable32bits = false;
+    }).nixGLMesa;
+  # These paths belong to Ghostty's GTK/nixGL runtime, not to the programs
+  # launched from its shell. Preserve unset versus empty host values too.
+  runtimeEnvironment = [
+    "GI_TYPELIB_PATH"
+    "GIO_EXTRA_MODULES"
+    "GDK_PIXBUF_MODULE_FILE"
+    "GST_PLUGIN_SYSTEM_PATH_1_0"
+    "LD_LIBRARY_PATH"
+    "LIBGL_DRIVERS_PATH"
+    "LIBVA_DRIVERS_PATH"
+    "GBM_BACKENDS_PATH"
+    "__EGL_VENDOR_LIBRARY_FILENAMES"
+    "GDK_BACKEND"
+    "G_RESOURCE_OVERLAYS"
+  ];
+  saveEnvironment =
+    lib.concatMapStringsSep "\n" (name: ''
+      if [[ -v ${name} ]]; then
+        export GHOSTTY_PARENT_${name}="${"$"}${name}"
+      else
+        unset GHOSTTY_PARENT_${name}
+      fi
+    '')
+    runtimeEnvironment;
+  restoreEnvironment =
+    lib.concatMapStringsSep "\n" (name: ''
+      if [[ -v GHOSTTY_PARENT_${name} ]]; then
+        export ${name}="$GHOSTTY_PARENT_${name}"
+        unset GHOSTTY_PARENT_${name}
+      else
+        unset ${name}
+      fi
+    '')
+    runtimeEnvironment;
+  # GTK 4.22 on GNOME 46 draws its own oversized Adwaita cursors instead of
+  # the cursor theme; see gtk-cursors.py.
+  gtkCursors =
+    pkgs.runCommand "ghostty-gtk-cursors" {nativeBuildInputs = [pkgs.python3];} ''
+      python3 -I ${./gtk-cursors.py} \
+        ${config.home.pointerCursor.package}/share/icons/${config.home.pointerCursor.name}/cursors $out \
+        --size ${toString config.home.pointerCursor.size}
+    '';
   ghosttyPackage =
     if pkgs.stdenv.hostPlatform.isLinux
     then
       pkgs.symlinkJoin {
-        name = "ghostty-x11-${pkgs.ghostty.version}";
-        paths = [ghosttyBasePackage];
+        name = "ghostty-wrapped-${pkgs.ghostty.version}";
+        paths = [pkgs.ghostty];
         inherit (pkgs.ghostty) meta;
         nativeBuildInputs = [pkgs.makeWrapper];
         postBuild = ''
-          # GTK/Wayland exits on EAGAIN while Ghostty processes Kitty image
-          # previews. XWayland avoids that fatal display-flush path on both
-          # NixOS and generic Linux hosts.
-          wrapProgram "$out/bin/ghostty" --set GDK_BACKEND x11
+          # Native Wayland. GDK_BACKEND=x11 used to dodge GTK exiting on EAGAIN
+          # during Kitty image floods (fixed since libwayland 1.23 lets GTK grow
+          # its buffer), but under Xwayland Ghostty deadlocked silently when a
+          # hidden window became visible again (workspace switch, alt-tab);
+          # see ghostty-org/ghostty discussion 12411.
+          wrapProgram "$out/bin/ghostty" \
+            --run ${lib.escapeShellArg saveEnvironment} \
+            --set GHOSTTY_RESTORE_ENVIRONMENT 1 \
+            --set G_RESOURCE_OVERLAYS /org/gtk/libgdk/cursor=${gtkCursors} \
+            --run 'if [[ ! -e /etc/NIXOS ]]; then exec ${lib.getExe nixGLMesa} ${lib.getExe pkgs.ghostty} "$@"; fi'
+
+          # A standalone home profile can run on NixOS or another distro.
+          # Select graphics support at launch, and route desktop/D-Bus/systemd
+          # activation through this same wrapper instead of the raw package.
+          for file in "$out"/share/applications/*.desktop \
+                      "$out"/share/dbus-1/services/*.service \
+                      "$out"/share/systemd/user/*.service; do
+            [[ -e "$file" ]] || continue
+            substitute "$file" "$file.new" \
+              --replace-quiet '${pkgs.ghostty}' "$out" \
+              --replace-quiet 'Exec=ghostty' "Exec=$out/bin/ghostty"
+            mv "$file.new" "$file"
+          done
         '';
       }
-    else ghosttyBasePackage;
+    else pkgs.ghostty;
 in {
-  xdg.configFile."ghostty/shaders/cursor_warp.glsl".source = ./cursor_warp.glsl;
+  # Frosted-glass backgrounds baked from the desktop wallpapers
+  # (frost-background.py): blurred like an iOS material and toned per theme,
+  # then shown opaque. blur-my-shell's live per-app blur stopped GNOME sending
+  # frame callbacks to Ghostty after workspace switches, freezing it.
+  # sigma 34 image px x 1.5 cover scale = 51 screen px on the 27" 4K.
+  xdg.configFile = let
+    walls = "https://raw.githubusercontent.com/dharmx/walls/6bf4d733ebf2b484a37c17d742eb47e5139e6a14";
+    frost = name: src: args:
+      pkgs.runCommand name {
+        nativeBuildInputs = [(pkgs.python3.withPackages (p: [p.numpy p.pillow]))];
+      } "python3 ${./frost-background.py} ${src} $out ${args}";
+  in {
+    "ghostty/shaders/cursor_warp.glsl".source = ./cursor_warp.glsl;
+    "ghostty/shaders/ambient.glsl".source = ./ambient.glsl;
+    "ghostty/backgrounds/dark.png".source = frost "ghostty-frost-dark.png" (pkgs.fetchurl {
+      url = "${walls}/mountain/a_snowy_mountain_tops_with_blue_sky.jpg";
+      hash = "sha256-zjl0t/8LfXNTIsZtByM1Lczdwmm0tHZs50XPsaniy6I=";
+    }) "--bg '#1e2233' --tint 0.62 --dim 0.5";
+    "ghostty/backgrounds/light.png".source = frost "ghostty-frost-light.png" (pkgs.fetchurl {
+      url = "${walls}/mountain/a_mountain_with_snow_and_clouds.jpg";
+      hash = "sha256-I/ZV9UoxeGrbRGadYNkhFfa8g2ulSSbS0GeATN3x43M=";
+    }) "--bg '#EEF0E4' --tint 0.62 --lift 0.25 --saturate 0.6";
+  };
 
   targets.genericLinux = lib.mkIf useNixGL {
     enable = lib.mkDefault true;
@@ -38,76 +123,97 @@ in {
       packages = import inputs.nixgl {inherit pkgs;};
       defaultWrapper = "mesa";
       installScripts = ["mesa"];
+      # WebGPU in Firefox needs Mesa's Vulkan drivers (RADV on the AMD iGPU).
+      vulkan.enable = true;
     };
   };
 
   programs = {
+    zsh.envExtra = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkBefore ''
+      # Consume the saved environment once so nested development shells keep
+      # their own library paths. Ghostty retains its private graphics runtime.
+      if [[ -n "''${GHOSTTY_RESTORE_ENVIRONMENT-}" ]]; then
+        ${restoreEnvironment}
+        unset GHOSTTY_RESTORE_ENVIRONMENT
+      fi
+    '');
+
     ghostty = {
       enable = true;
       package = ghosttyPackage;
       themes = {
+        # Matches snappy.nvim and the Agent Hub UI: blue-slate base, soft pastels.
         snappy = {
           palette = [
-            "0=#2c3144"
-            "1=#dd7a84"
-            "2=#8ac48a"
-            "3=#d5ad63"
-            "4=#6fb0f4"
-            "5=#a487eb"
-            "6=#62bcc6"
-            "7=#c9d1e2"
+            "0=#3a3d4d"
+            "1=#e38b96"
+            "2=#a3c88b"
+            "3=#e6c27a"
+            "4=#77bdfb"
+            "5=#a890d3"
+            "6=#8fd3e6"
+            "7=#a9b1d6"
 
-            "8=#5d6784"
-            "9=#e88c95"
-            "10=#9dd29d"
-            "11=#dfbd78"
-            "12=#88bfff"
-            "13=#b79ef5"
-            "14=#7bcdd6"
-            "15=#edf1f9"
+            "8=#565f89"
+            "9=#ec9aa4"
+            "10=#b5d6a0"
+            "11=#edd096"
+            "12=#93cbfc"
+            "13=#b4befe"
+            "14=#a8def0"
+            "15=#e6e4f0"
           ];
 
-          background = "#181a24";
-          foreground = "#c8d0e0";
-          cursor-color = "#c8d0e0";
-          cursor-text = "#1f2435";
-          # cursor-invert-fg-bg = true;
-          selection-background = "#283044";
-          selection-foreground = "#dce4f2";
+          background = "#1e2233";
+          foreground = "#d4d2e2";
+          background-image = "${config.xdg.configHome}/ghostty/backgrounds/dark.png";
+          background-image-fit = "cover";
+          cursor-color = "#b4befe";
+          cursor-text = "#1e2233";
+          selection-background = "#3c4e64";
+          selection-foreground = "#e6e4f0";
         };
+        # Daytime counterpart: sage paper with moss, lake and ochre accents, all
+        # normal colors at WCAG AA (>= 4.5:1) on the background.
         snappy_light = {
           palette = [
-            "0=#5A6275" # black / neutral ink
-            "1=#C95A6A" # red
-            "2=#4F956C" # green
-            "3=#BA7F26" # yellow
-            "4=#2B7FD6" # blue
-            "5=#A463D8" # magenta
-            "6=#2F98AB" # cyan
-            "7=#6D7588" # white / dark neutral
+            "0=#4A5548" # ink2
+            "1=#B03E45" # berry
+            "2=#36703A" # moss
+            "3=#7E5F0E" # ochre
+            "4=#2A6E99" # lake
+            "5=#8A4F8E" # heather
+            "6=#1B726C" # teal
+            "7=#626B5E" # stone
 
-            "8=#98A1B5" # bright black / muted gutter
-            "9=#DB7080" # bright red
-            "10=#66A981" # bright green
-            "11=#CF953E" # bright yellow
-            "12=#4A97E8" # bright blue
-            "13=#B57BE5" # bright magenta
-            "14=#4DAFBE" # bright cyan
-            "15=#202533" # bright white / main ink
+            "8=#7C8576" # lichen / muted gutter
+            "9=#B84B52"
+            "10=#448246"
+            "11=#937112"
+            "12=#3779A3"
+            "13=#965C9A"
+            "14=#25857F"
+            "15=#1E261D" # deep ink
           ];
 
-          background = "#F5EFE4"; # warm paper
-          foreground = "#202533"; # main ink
-          cursor-color = "#202533";
-          cursor-text = "#F5EFE4";
+          background = "#EEF0E4"; # sage paper
+          foreground = "#2A3329";
+          background-image = "${config.xdg.configHome}/ghostty/backgrounds/light.png";
+          background-image-fit = "cover";
+          cursor-color = "#36703A";
+          cursor-text = "#EEF0E4";
 
-          selection-background = "#D9E4F5"; # day highlight layer
-          selection-foreground = "#202533";
+          selection-background = "#D8E2CC";
+          selection-foreground = "#2A3329";
         };
       };
       settings = {
         theme = "dark:snappy,light:snappy_light";
         # custom-shader = "shaders/cursor_warp.glsl";
+        # ambient.glsl (aurora + motes) saturated the AMD iGPU (23% -> 99% busy)
+        # while animating on a 4K/120 Hz screen; kept for reference, not enabled.
+        # custom-shader = "${config.xdg.configHome}/ghostty/shaders/ambient.glsl";
+        # custom-shader-animation = true;
 
         font-family = "Maple Mono NF";
         font-size = lib.mkDefault 12;
@@ -130,10 +236,9 @@ in {
         clipboard-write = "allow";
         clipboard-paste-protection = false;
         gtk-single-instance = false;
+        confirm-close-surface = false;
 
         window-decoration = false;
-        # background-opacity = 1;
-        background-opacity = 0.74;
         link-url = true;
       };
     };

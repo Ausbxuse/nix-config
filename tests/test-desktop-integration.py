@@ -84,7 +84,7 @@ class DesktopIntegrationTest(unittest.TestCase):
         self.tmux("set-option", "-wu", "-t", self.pane, "@agent-summary")
         self.sync()
         self.assertEqual(self.option("@agent-state"), "done")
-        self.assertEqual(self.option("@agent-summary"), "needs review")
+        self.assertEqual(self.option("@agent-summary"), "finished")
         self.assertGreaterEqual(int(self.option("@agent-session-scan")), int(time.time()) - 5)
 
     def test_quoted_working_and_approval_text_does_not_override_completion(self):
@@ -119,7 +119,13 @@ class DesktopIntegrationTest(unittest.TestCase):
         self.assertEqual(self.option("@agent-state"), "done")
 
     def test_agent_colors_take_precedence_over_old_bells(self):
-        for theme in ("dark", "light"):
+        palettes = {
+            "dark": {"running": "#8fd3e6", "done": "#a3c88b",
+                     "waiting": "#e6c27a", "blocked": "#e38b96"},
+            "light": {"running": "#2A6E99", "done": "#36703A",
+                      "waiting": "#7E5F0E", "blocked": "#B03E45"},
+        }
+        for theme, palette in palettes.items():
             self.tmux("source-file", str(REPO / f"modules/home/tmux/theme-{theme}.conf"))
             for name in ("@workbench-agent-window-number-style",
                          "@workbench-agent-window-current-number-style"):
@@ -127,8 +133,7 @@ class DesktopIntegrationTest(unittest.TestCase):
                 # Force the bell condition true without sending a terminal bell.
                 self.tmux("set-option", "-g", name,
                           style.replace("window_bell_flag", "#{==:1,1}"))
-                for state, color in (("running", "#5fb3c4"), ("done", "#9ece6a"),
-                                     ("waiting", "#d6a65d"), ("blocked", "#ff5c57")):
+                for state, color in palette.items():
                     with self.subTest(theme=theme, state=state, format=name):
                         self.option("@agent-state", state)
                         self.assertEqual(self.tmux("display", "-p", "-t", self.pane,

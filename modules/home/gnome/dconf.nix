@@ -2,6 +2,7 @@
 {
   lib,
   username,
+  hostDef,
   ...
 }:
 with lib.hm.gvariant; {
@@ -57,8 +58,8 @@ with lib.hm.gvariant; {
     "org/gnome/desktop/background" = {
       color-shading-type = "solid";
       picture-options = "zoom";
-      picture-uri = "file:///home/${username}/.local/share/wallpapers/city.jpg";
-      picture-uri-dark = "file:///home/${username}/.local/share/wallpapers/city.jpg";
+      picture-uri = "file:///home/${username}/.local/share/wallpapers/peaks-light.jpg";
+      picture-uri-dark = "file:///home/${username}/.local/share/wallpapers/peaks-dark.jpg";
       primary-color = "#3071AE";
       secondary-color = "#000000";
     };
@@ -267,7 +268,11 @@ with lib.hm.gvariant; {
 
     "org/gnome/settings-daemon/plugins/power" = {
       ambient-enabled = true;
-      sleep-inactive-ac-type = "suspend";
+      # Keep the Ubuntu workstation reachable over Tailscale while locked.
+      sleep-inactive-ac-type =
+        if hostDef.nixos.enable or false
+        then "suspend"
+        else "nothing";
       sleep-inactive-battery-type = "suspend";
     };
 
@@ -365,15 +370,17 @@ with lib.hm.gvariant; {
       sigma = 30;
     };
 
+    # No per-app blur: it stopped GNOME sending frame callbacks to Ghostty
+    # after workspace switches (window froze). Ghostty bakes its own frosted
+    # background instead (ghostty/frost-background.py).
     "org/gnome/shell/extensions/blur-my-shell/applications" = {
-      blur = true;
+      blur = false;
       blur-on-overview = false;
-      brightness = 0.7;
-      dynamic-opacity = false;
       enable-all = false;
       opacity = 255;
-      sigma = 60;
-      whitelist = ["Alacritty" "org.wezfurlong.wezterm" "com.mitchellh.ghostty"];
+      dynamic-opacity = false;
+      static-blur = true;
+      whitelist = ["com.mitchellh.ghostty"];
     };
 
     "org/gnome/shell/extensions/blur-my-shell/coverflow-alt-tab" = {

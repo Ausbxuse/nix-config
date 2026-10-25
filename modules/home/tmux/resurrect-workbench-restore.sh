@@ -171,9 +171,12 @@ while IFS= read -r line; do
   agent_session_sig="${fields[25]:-}"
   agent_preview_file="${fields[26]:-}"
   agent_home_session="${fields[27]:-}"
+  agent_manual_idle="${fields[28]:-}"
 
   window="${window_by_key["$session:$window_index"]:-}"
   [[ -n "$window" ]] || continue
+
+  set_window_option_if_value "$window" @agent-manual-idle "$agent_manual_idle"
 
   if valid_task_root_value "$task_root"; then
     mapped_term_window="$(map_saved_window "$term_window" 2>/dev/null || true)"

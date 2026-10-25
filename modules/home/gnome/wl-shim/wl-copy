@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# wl-copy stand-in for GNOME: GNOME lacks wlr-data-control, so the real
+# wl-copy maps a helper window to grab focus, which Forge auto-splits around
+# (the terminal layout flashes). xclip writes the same clipboard through
+# Xwayland without a window; GNOME mirrors it to Wayland clients.
+set -euo pipefail
+real=@wlclipboard@/bin/wl-copy
+case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) exec "$real" "$@" ;; esac
+[ -n "${DISPLAY:-}" ] || exec "$real" "$@"
+
+selection=clipboard type=text/plain;charset=utf-8 trim=0 clear=0 text=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p | --primary) selection=primary ;;
+    -t | --type) type=$2; shift ;;
+    --type=*) type=${1#--type=} ;;
+    -n | --trim-newline) trim=1 ;;
+    -c | --clear) clear=1 ;;
+    -o | --paste-once | -f | --foreground | -s | --seat) [ "$1" = -s ] || [ "$1" = --seat ] && shift ;;
+    --) shift; text+=("$@"); break ;;
+    -*) exec "$real" "$@" ;;
+    *) text+=("$1") ;;
+  esac
+  shift
+done
+
+feed() {
+  if [ "$clear" = 1 ]; then printf ''
+  elif [ ${#text[@]} -gt 0 ]; then printf '%s' "${text[*]}"
+  elif [ "$trim" = 1 ]; then @python@ -c 'import sys; d=sys.stdin.buffer.read(); sys.stdout.buffer.write(d[:-1] if d.endswith(b"\n") else d)'
+  else cat; fi
+}
+# xclip forks to serve the selection; detach it from our stdio so callers
+# waiting on this process do not hang.
+feed | @xclip@/bin/xclip -selection "$selection" -t "$type" -i >/dev/null 2>&1

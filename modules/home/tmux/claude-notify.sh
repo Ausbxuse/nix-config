@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Claude Code lifecycle hook -> workbench window state.
+# Claude Code / Codex lifecycle hook -> workbench window state.
 #
 # Registered (by home.activation.configureClaudeHooks) for SessionStart,
 # UserPromptSubmit, PreToolUse, Notification, Stop, StopFailure and SessionEnd
 # in ~/.claude/settings.json. Claude Code pipes the event as JSON on stdin and
 # hooks inherit the pane's environment, so $TMUX_PANE points at the window to
-# mark. This replaces pane/transcript scraping as the source of truth:
-# workbench.sh sync skips windows carrying @agent-hook-pid while that process
-# is alive (see sync_agent_states).
+# mark. Claude hooks own its lifecycle state; Codex uses the same hook format
+# and workbench.sh also reads its transcript for input requests and aborts
+# (see sync_agent_states).
 set -euo pipefail
 
 [[ -n "${TMUX_PANE:-}" ]] || exit 0
@@ -23,9 +23,9 @@ json_field() {
 event="$(json_field hook_event_name)"
 [[ -n "$event" ]] || exit 0
 
-# The claude process this event belongs to: nearest ancestor that is claude
+# The agent process this event belongs to: nearest Claude/Codex ancestor
 # (or node, for npm installs). Guards against a nested `claude -p` launched
-# from inside a tool call stealing the window's state: whichever claude
+# from inside a tool call stealing the window's state: whichever agent
 # registered first keeps it while it lives.
 owner_pid=""
 pid="$$"
@@ -33,7 +33,7 @@ for _ in 1 2 3 4 5 6; do
   pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || true)"
   [[ -n "$pid" && "$pid" != 0 && "$pid" != 1 ]] || break
   case "$(cat "/proc/$pid/comm" 2>/dev/null || true)" in
-    claude* | .claude* | node) owner_pid="$pid"; break ;;
+    claude* | .claude* | codex* | .codex* | node) owner_pid="$pid"; break ;;
   esac
 done
 [[ -n "$owner_pid" ]] || owner_pid="$PPID"
@@ -69,14 +69,19 @@ case "$event" in
     esac
     ;;
   Stop)
-    state=done summary="needs review"
+    state=done summary=finished
     ;;
   StopFailure)
     state=blocked summary=error
     ;;
   SessionEnd)
     tmux set-option -w -t "$TMUX_PANE" -u @agent-hook-pid 2>/dev/null || true
-    state=idle summary=ready
+    # Exiting must not erase a failure or turn unfinished work green.
+    current_state="$(tmux show-options -wqv -t "$TMUX_PANE" @agent-state 2>/dev/null || true)"
+    case "$current_state" in
+      running | busy | waiting | needs-input) state=blocked summary=canceled ;;
+      *) exit 0 ;;
+    esac
     ;;
   *)
     exit 0
@@ -85,6 +90,16 @@ esac
 
 if [[ "$event" != SessionEnd ]]; then
   tmux set-option -w -t "$TMUX_PANE" @agent-hook-pid "$owner_pid" 2>/dev/null || true
+  # The hook knows the exact transcript, including two agents in one cwd.
+  transcript="$(json_field transcript_path)"
+  if [[ -n "$transcript" && -f "$transcript" ]]; then
+    previous="$(tmux show-options -wqv -t "$TMUX_PANE" @agent-session-file 2>/dev/null || true)"
+    if [[ "$transcript" != "$previous" ]]; then
+      tmux set-option -w -t "$TMUX_PANE" @agent-session-file "$transcript" 2>/dev/null || true
+      tmux set-option -w -t "$TMUX_PANE" -u @agent-session-sig 2>/dev/null || true
+    fi
+    tmux set-option -w -t "$TMUX_PANE" @agent-session-scan "$(date +%s)" 2>/dev/null || true
+  fi
 fi
 
 TMUX_WORKBENCH_TARGET_PANE="$TMUX_PANE" \

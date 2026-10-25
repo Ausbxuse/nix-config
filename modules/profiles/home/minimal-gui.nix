@@ -20,7 +20,7 @@
   home.pointerCursor = {
     enable = true;
     name = "capitaine-cursors-white";
-    package = pkgs.bibata-cursors;
+    package = pkgs.capitaine-cursors;
     size = lib.mkDefault 24;
     gtk.enable = true;
     x11.enable = true;

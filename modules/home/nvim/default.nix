@@ -40,6 +40,17 @@
     rev = "b22e987c69749adcf1342e8040312e9318083d4a";
     hash = "sha256-d70H2zsQb1KbbgWAYkr14xQ52lvhweYzGN6KURl4hj8=";
   };
+  # nixpkgs' v3.0.4 archive hash is stale. Pin the verified release commit
+  # while retaining its language-server installation and runtime dependencies.
+  copilotLua = pkgs.vimPlugins.copilot-lua.overrideAttrs {
+    version = "3.0.4";
+    src = pkgs.fetchFromGitHub {
+      owner = "zbirenbaum";
+      repo = "copilot.lua";
+      rev = "9d391a02dc0281713cbb7c3bc87cdd38287b92eb";
+      hash = "sha256-kDQOm7/N6T7wOw1JlkcxNMnQrDE4oTRyGCZkvT8HZQw=";
+    };
+  };
 
   # The current nixpkgs Tree-sitter set does not yet contain the tmux grammar
   # used by this config, so retain the revision from nvim-pack-lock.json here.
@@ -109,7 +120,7 @@
     pkgs.vimPlugins.blink-copilot
     pkgs.vimPlugins.cellular-automaton-nvim
     pkgs.vimPlugins.conform-nvim
-    pkgs.vimPlugins.copilot-lua
+    copilotLua
     pkgs.vimPlugins.dropbar-nvim
     pkgs.vimPlugins.fzf-lua
     pkgs.vimPlugins.gitsigns-nvim

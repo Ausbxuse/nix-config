@@ -848,7 +848,7 @@ user_pref("dom.security.sanitizer.enabled", true);
 // [2] https://developer.chrome.com/docs/web-platform/webgpu/
 // [3] https://github.com/gpuweb/gpuweb/wiki/Implementation-Status
 // [4] https://hacks.mozilla.org/2020/04/experimental-webgpu-in-firefox/
-//user_pref("dom.webgpu.enabled", true);
+user_pref("dom.webgpu.enabled", true);
 //user_pref("gfx.webgpu.force-enabled", true); // enforce
 // enable WebGPU indirect draws/dispatches:
 //user_pref("dom.webgpu.indirect-dispatch.enabled", true);
