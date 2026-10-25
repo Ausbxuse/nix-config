@@ -50,6 +50,24 @@
     };
   };
 
+  # Ubuntu GNOME workstation with a landscape and a portrait 4K monitor.
+  gpu-004 = {
+    system = "x86_64-linux";
+    username = "zhenyu";
+    platform = "custom";
+    visibility = "private";
+
+    home = {
+      enable = true;
+      profile = "minimal-gui";
+      displayProfile = "gnome-default";
+    };
+
+    nixos = {
+      enable = false;
+    };
+  };
+
   spacy = {
     system = "x86_64-linux";
     username = "zhenyu";

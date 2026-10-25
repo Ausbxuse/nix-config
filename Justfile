@@ -52,7 +52,7 @@ home CONFIG='':
 	set -euo pipefail
 
 	config='{{CONFIG}}'
-	if [ -z "$config" ]; then config="$(hostname)"; fi
+	if [ -z "$config" ]; then config="$(hostname -s)"; fi
 	env -u FLAKE nh home switch --ask --diff always --fallback --configuration $(if [ -n "${SUDO_USER:-}" ]; then printf '%s' "$SUDO_USER"; else whoami; fi)@"$config" . -- $(user_home="$HOME"; if [ -n "${SUDO_USER:-}" ]; then user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"; fi; if [ -d "$user_home/src/private/nix-secrets" ]; then echo "--override-input nix-secrets path:$user_home/src/private/nix-secrets"; fi) {{nix-interactive-options}}
 
 sys-test:
