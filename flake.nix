@@ -392,6 +392,9 @@
       (import ./tests {inherit pkgs lib;})
       // lib.optionalAttrs (system == "x86_64-linux") {
         inherit (systemPackages) nvim;
+        "initrd-unlock-deadline" = pkgs.testers.runNixOSTest {
+          imports = [./tests/initrd-unlock-deadline.nix];
+        };
         "installer-nvim-offline" = installerNvimCheck;
         "installer-profile-template" = installerProfileTemplateCheck;
         "razy-nvim-declarative" = mkNvimDeclarativeCheck "razy";

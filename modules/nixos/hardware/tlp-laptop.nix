@@ -6,7 +6,7 @@
 {lib, ...}: {
   # mkForce needed: GNOME and qol.nix both set these; TLP conflicts with both.
   services.power-profiles-daemon.enable = lib.mkForce false;
-  # services.auto-cpufreq.enable = lib.mkForce false;
+  services.auto-cpufreq.enable = lib.mkForce false;
 
   services.thermald.enable = true;
   # Avoid stacking PowerTOP auto-tuning on top of TLP. Both touch USB runtime

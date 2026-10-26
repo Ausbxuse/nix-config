@@ -327,6 +327,40 @@ hardware.nvidia.powerManagement.finegrained = lib.mkForce false;
 That was a pragmatic debugging choice. The current host configuration has
 since re-enabled fine-grained NVIDIA power management.
 
+On October 4, 2026, both the 03:56 and 11:24 resumes completed at the system
+level but immediately produced NVIDIA Xid 13 shader faults in Xwayland, GNOME
+Shell, and other GPU clients, followed by failed modesets and display flip
+timeouts. The deployed udev rule selected NVIDIA as GNOME's primary renderer
+while full VRAM preservation and kernel suspend notifiers were disabled.
+
+The host now enables full VRAM preservation through the open driver's kernel
+suspend notifier, with `/var/tmp` on the encrypted disk as the snapshot
+location. PRIME offload and fine-grained runtime power management remain
+enabled; the NVIDIA primary-renderer rule is scoped to the docked profile.
+These module parameters require a reboot to take effect. A physical
+suspend/resume test after reboot is still needed to confirm the fix.
+
+### Overnight NVIDIA GSP hang
+
+The October 13–14, 2026 boot (`dbed68e04dc1401680e8b9ca5fd01f4f`) resumed
+at 00:23 PDT and remained awake. At 04:42, NVIDIA 610.57.04 reported a stopped
+GSP heartbeat, three Xid 119 timeouts, then Xid 154 requesting a GPU reset.
+GPU communication and power-limit failures continued until the 11:32 reboot.
+This is the leading explanation for the reported loud fans, but historical
+fan speeds and temperatures were not recorded. The initial timeout was in
+GNOME's KMS thread; the later `nvidia-powerd` failures do not establish that
+Dynamic Boost caused the hang.
+
+[upstream issue #1353](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1353)
+reports a similar sequence on multiple driver branches. A driver change
+has not yet been shown to fix this incident on this machine.
+
+If it recurs, save the kernel journal and run `nvidia-bug-report.sh --safe-mode`
+before rebooting, if the machine remains accessible. Capture failures for
+upstream investigation rather than automatically resetting a GPU in use by
+the desktop. Blackwell requires the open kernel modules and GSP, so disabling
+GSP or selecting the proprietary modules is not a supported workaround.
+
 ### Panther Lake `thermald`
 
 `thermald` 2.5.12 marks Panther Lake CPU model `0xcc` as adaptive-only. This

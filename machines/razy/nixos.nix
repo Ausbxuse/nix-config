@@ -18,12 +18,67 @@
       '';
   });
   razyAlsaUcmDir = "${razyAlsaUcmConf}/share/alsa/ucm2";
+
+  # Patched daemons go to their service options, not an overlay: overlaying
+  # networkmanager changes libnm and forces most of GNOME to build from source.
+  # NetworkManager normally walks active devices through an asynchronous
+  # DEACTIVATING -> DISCONNECTED -> UNMANAGED sequence before suspend. On
+  # this Wi-Fi device that sequence crosses the sleep boundary: it resumes,
+  # associates once, then the stale pre-sleep teardown disconnects it again.
+  # Complete the suspend-only transition synchronously instead, then retire
+  # NetworkManager's delay inhibitor when the SLEEP signal handler returns.
+  # The power monitor moves any outstanding handles to its stale list, so a
+  # late release remains safe without holding logind for its full five-second
+  # timeout. The normal user-requested networking-off path is unchanged.
+  razyNetworkManager = pkgs.networkmanager.overrideAttrs (oldAttrs: {
+    postPatch =
+      (oldAttrs.postPatch or "")
+      + ''
+        substituteInPlace src/core/nm-manager.c \
+          --replace-fail \
+            '    nm_device_notify_sleeping(device);' \
+            '    nm_device_notify_sleeping(device);
+
+if (suspending) {
+    nm_device_set_unmanaged_by_flags(device,
+                                     NM_UNMANAGED_MANAGER_DISABLED,
+                                     NM_UNMAN_FLAG_OP_SET_UNMANAGED,
+                                     reason);
+    return;
+}'
+
+        substituteInPlace src/core/nm-power-monitor.c \
+          --replace-fail \
+            '        drop_inhibitor(self, FALSE);' \
+            '        drop_inhibitor(self, TRUE);'
+      '';
+  });
+
+  # nsncd deliberately exits when every worker is stuck, allowing systemd
+  # to replace the unhealthy proxy. Upstream then joins those same blocked
+  # workers before exiting; after resume that kept NSS unavailable for about
+  # 4.2 seconds. Preserve the fail-fast design and let process exit terminate
+  # the stale worker threads so Restart=always can restore NSS immediately.
+  razyNsncd = pkgs.nsncd.overrideAttrs (oldAttrs: {
+    postPatch =
+      (oldAttrs.postPatch or "")
+      + ''
+        substituteInPlace src/main.rs \
+          --replace-fail \
+            '            let _ = handle.join();' \
+            '            drop(handle);'
+      '';
+  });
 in {
   imports = [
     ../../modules/nixos/hardware/tlp-laptop.nix
+    ../../modules/nixos/initrd-unlock-deadline.nix
     ../../modules/nixos/hardware/rotate-sensor.nix
     ../../modules/nixos/ollama-agent.nix
   ];
+
+  networking.networkmanager.package = razyNetworkManager;
+  services.nscd.package = razyNsncd;
 
   nixpkgs.overlays = [
     (_final: prev: {
@@ -42,39 +97,6 @@ in {
               --replace-fail \
                 'fans = psutil.sensors_fans()' \
                 'fans = {}'
-          '';
-      });
-
-      # NetworkManager removes the active route immediately on PrepareForSleep,
-      # but this Wi-Fi device never reaches its final UNMANAGED state before
-      # logind's five-second deadline. Keep NetworkManager's normal teardown and
-      # wake handling, but do not hold the system-wide sleep inhibitor while its
-      # asynchronous device transition finishes. This is deliberately scoped to
-      # NetworkManager so GNOME keeps the full deadline for locking the screen.
-      networkmanager = prev.networkmanager.overrideAttrs (oldAttrs: {
-        postPatch =
-          (oldAttrs.postPatch or "")
-          + ''
-            substituteInPlace src/core/nm-power-monitor.c \
-              --replace-fail \
-                '        drop_inhibitor(self, FALSE);' \
-                '        drop_inhibitor(self, TRUE);'
-          '';
-      });
-
-      # nsncd deliberately exits when every worker is stuck, allowing systemd
-      # to replace the unhealthy proxy. Upstream then joins those same blocked
-      # workers before exiting; after resume that kept NSS unavailable for about
-      # 4.2 seconds. Preserve the fail-fast design and let process exit terminate
-      # the stale worker threads so Restart=always can restore NSS immediately.
-      nsncd = prev.nsncd.overrideAttrs (oldAttrs: {
-        postPatch =
-          (oldAttrs.postPatch or "")
-          + ''
-            substituteInPlace src/main.rs \
-              --replace-fail \
-                '            let _ = handle.join();' \
-                '            drop(handle);'
           '';
       });
 
@@ -109,6 +131,20 @@ in {
   systemd.user.services.wireplumber.environment.ALSA_CONFIG_UCM2 = razyAlsaUcmDir;
 
   services.xserver.videoDrivers = ["modesetting" "nvidia"];
+
+  # Make the internal panel available before requesting the LUKS password.
+  # A text prompt also avoids animating the firmware framebuffer throughout
+  # an unattended encrypted boot, before normal laptop power policy starts.
+  boot.initrd.kernelModules = ["xe"];
+  boot.plymouth.enable = lib.mkForce false;
+
+  # Windows selected through GRUB must remain the target of its update reboots.
+  boot.loader.grub.default = "saved";
+
+  # Tailscale reconnects as networking becomes available. Waiting for Wi-Fi
+  # here previously added a full minute to boots without a usable connection.
+  systemd.services.NetworkManager-wait-online.enable = lib.mkForce false;
+
   # BIOS 4.01 still exposes two INTC10D6 fan-status devices whose _FST
   # methods call the missing HEC.RCFS method.  Keep the devices bound for
   # firmware/kernel thermal control, but prevent libsensors clients (notably
@@ -117,6 +153,17 @@ in {
     chip "acpi_fan-isa-*"
         ignore fan1
   '';
+  # nsncd workers performing NSS lookups can remain blocked across a long
+  # suspend. PAM, logrotate, fwupd and NetworkManager then all wait on the same
+  # stale worker pool for several seconds after resume. Replace the pool in a
+  # system-sleep post hook, before systemd thaws the user slice. The nsncd
+  # overlay above makes stopping a wedged instance non-blocking.
+  environment.etc."systemd/system-sleep/razy-refresh-nsncd".source =
+    pkgs.writeShellScript "razy-refresh-nsncd-after-resume" ''
+      if [ "$1" = post ]; then
+        ${pkgs.systemd}/bin/systemctl restart nscd.service
+      fi
+    '';
   # Firmware fan-status methods repeatedly reference missing RCFS. Keep these
   # errors in the journal without printing them during the resume VT handoff.
   # Critical kernel messages still reach the console; this is cosmetic only.
@@ -124,24 +171,25 @@ in {
   boot.kernelParams = [
     # # This platform can hang before resume from s2idle. Prefer S3/deep sleep.
     # "mem_sleep_default=deep"
+    # Panther Lake Panel Replay can leave Samsung OLED eDP panels black or
+    # visually stale while the rest of resume has already completed. Disable
+    # only Panel Replay; ordinary PSR remains available for idle display power
+    # savings, unlike the broader xe.enable_psr=0 workaround.
+    "xe.enable_panel_replay=0"
     # Hide the blinking VT cursor during the resume handoff back to GNOME.
     "xe.enable_dpcd_backlight=1"
     "vt.global_cursor_default=0"
   ];
-  # hardware.nvidia.prime = {
-  #   sync.enable = lib.mkForce true;
-  #   offload.enable = lib.mkForce false;
-  #   offload.enableOffloadCmd = lib.mkForce false;
-  # }; # already set in nvidia.nix
-
-  # The offload GPU reaches RTD3 before sleep. Full VRAM preservation routes
-  # every suspend through NVIDIA's global notifier and adds about 2.3 seconds
-  # to resume even while the GPU is otherwise idle. Use the driver's standard
-  # PCI callbacks; keep fine-grained runtime power management for battery use.
+  # Preserve all VRAM across sleep, including allocations from offloaded apps
+  # and the docked GNOME renderer. Without preservation, resume produced Xid 13
+  # shader faults and display flip timeouts. Use the open driver's kernel
+  # notifier while retaining fine-grained runtime power management on battery.
   hardware.nvidia.package = lib.mkForce config.boot.kernelPackages.nvidiaPackages.latest;
-  hardware.nvidia.powerManagement.enable = lib.mkForce false;
+  hardware.nvidia.powerManagement.enable = lib.mkForce true;
   hardware.nvidia.powerManagement.finegrained = lib.mkForce true;
-  hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce false;
+  hardware.nvidia.powerManagement.kernelSuspendNotifier = lib.mkForce true;
+  # Use the encrypted disk for the potentially large temporary VRAM snapshot.
+  hardware.nvidia.moduleParams.nvidia.NVreg_TemporaryFilePath = "/var/tmp";
   hardware.nvidia.dynamicBoost.enable = true;
 
   # thermald 2.5.12 restricts Panther Lake model 0xcc to adaptive mode,
@@ -368,11 +416,7 @@ in {
     '';
   };
 
-  # Force mutter to use the NVIDIA GPU as primary renderer on Wayland.
-  # Without this, mutter picks Intel (card0) and does a cross-GPU copy to
-  # NVIDIA for HDMI output, causing periodic cursor lag.
-
-  # Battery-friendly profile: offload rendering to iGPU, use dGPU on demand.
+  # Battery-friendly profile: render on Intel, use NVIDIA on demand.
   hardware.nvidia.prime = {
     sync.enable = lib.mkForce false;
     offload.enable = lib.mkForce true;
@@ -381,9 +425,8 @@ in {
 
   # Select at boot from the grub menu.
   specialisation.docked.configuration = {
-    # # Let mutter pick the default (Intel) primary GPU in offload mode.
-    # TODO: make it only do so for external monitor. make internal monitor still rendered by intel
-
+    # Prefer NVIDIA only in the docked profile to avoid cross-GPU copies and
+    # cursor lag on HDMI. The base profile leaves the Intel renderer preferred.
     services.udev.extraRules = ''
       SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", ENV{DEVNAME}=="/dev/dri/card[0-9]", SUBSYSTEMS=="pci", ATTRS{vendor}=="0x10de", TAG+="mutter-device-preferred-primary"
     '';
