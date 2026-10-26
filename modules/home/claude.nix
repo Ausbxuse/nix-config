@@ -1,11 +1,58 @@
 {
+  config,
   inputs,
+  lib,
   pkgs,
   ...
 }: let
   system = pkgs.stdenv.hostPlatform.system;
   claudeCode = inputs.claude-code-nix.packages.${system}.default;
   json = pkgs.formats.json {};
+
+  # Claude Code rewrites ~/.claude/settings.json itself (/config, model and
+  # theme changes), so it cannot be a read-only home.file link. Instead these
+  # keys are merged into it on every switch, leaving everything else as is
+  # (tmux/default.nix registers its hooks the same way).
+  settings = {
+    statusLine = {
+      type = "command";
+      command = "$HOME/.claude/statusline";
+    };
+    # Auto mode as the default on every host, not only where it was opted
+    # into once (that choice lives in the per-host ~/.claude.json).
+    permissions.defaultMode = "auto";
+  };
+  mergeSettings = pkgs.writers.writePython3 "merge-claude-settings" {} ''
+    import json
+    import os
+    import sys
+
+    path, managed = sys.argv[1], json.loads(sys.argv[2])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path) as fh:
+            current = json.load(fh)
+    except FileNotFoundError:
+        current = {}
+    if not isinstance(current, dict):
+        raise SystemExit(path + " is not a JSON object; refusing")
+
+
+    def merge(into, keys):
+        for key, value in keys.items():
+            if isinstance(value, dict) and isinstance(into.get(key), dict):
+                merge(into[key], value)
+            else:
+                into[key] = value
+
+
+    merge(current, managed)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(current, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+  '';
 
   # Keys our tmux root table (modules/home/tmux) swallows before Claude Code
   # ever sees them, so nothing below may use them:
@@ -172,10 +219,12 @@ in {
     force = true;
   };
 
-  # Status line showing the 5h and weekly usage limits. Wired up by hand in
-  # ~/.claude/settings.json ("statusLine".command -> this path) rather than
-  # here: Claude Code writes settings.json itself (/config, model changes), so a
-  # read-only home-manager symlink there would break it.
+  home.activation.mergeClaudeSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    run ${mergeSettings} ${lib.escapeShellArg "${config.home.homeDirectory}/.claude/settings.json"} \
+      ${lib.escapeShellArg (builtins.toJSON settings)}
+  '';
+
+  # Status line showing the 5h and weekly usage limits ("statusLine" above).
   home.file.".claude/statusline" = {
     # -SE (combined; a Linux shebang takes only one argument) skips site
     # initialisation and env-var handling, cutting ~4.5ms off a ~19ms render.
