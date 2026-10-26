@@ -225,6 +225,9 @@ in {
         ];
 
         shell-integration-features = "no-cursor,no-sudo,title";
+        # Slow touchpad scrolling, including Codex history through tmux.
+        # Keep mouse-wheel scrolling at Ghostty's default speed.
+        mouse-scroll-multiplier = "precision:0.1,discrete:3";
         bell-features = "no-system,no-audio,no-attention,no-title,no-border";
         cursor-style-blink = false;
         adjust-cursor-thickness = 2;

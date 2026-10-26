@@ -1,5 +1,6 @@
 # Generated via dconf2nix: https://github.com/gvolpe/dconf2nix
 {
+  config,
   lib,
   username,
   hostDef,
@@ -58,8 +59,10 @@ with lib.hm.gvariant; {
     "org/gnome/desktop/background" = {
       color-shading-type = "solid";
       picture-options = "zoom";
-      picture-uri = "file:///home/${username}/.local/share/wallpapers/peaks-light.jpg";
-      picture-uri-dark = "file:///home/${username}/.local/share/wallpapers/peaks-dark.jpg";
+      # dconf activates before home-file links are installed. Store paths exist
+      # already and change with the image, so GNOME can load them immediately.
+      picture-uri = "file://${config.home.file.".local/share/wallpapers/peaks-light.jpg".source}";
+      picture-uri-dark = "file://${config.home.file.".local/share/wallpapers/peaks-dark.jpg".source}";
       primary-color = "#3071AE";
       secondary-color = "#000000";
     };

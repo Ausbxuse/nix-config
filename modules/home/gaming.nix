@@ -5,29 +5,79 @@
     name = "manage-steam-xwayland-key-repeat";
     runtimeInputs = with pkgs; [
       coreutils
+      inotify-tools
       procps
       xset
     ];
     text = ''
+      steam_dir="$HOME/.steam"
+      steam_pid_file="$steam_dir/steam.pid"
+      uid="$(id -u)"
       repeat_disabled=false
 
       restore_repeat() {
         if "$repeat_disabled"; then
-          xset r on || true
-        fi
-      }
-      trap restore_repeat EXIT INT TERM
-
-      while true; do
-        if pgrep --uid "$(id -u)" --full '[/]reaper SteamLaunch AppId=[0-9]+' >/dev/null; then
-          if ! "$repeat_disabled" && xset r off; then
-            repeat_disabled=true
-          fi
-        elif "$repeat_disabled"; then
-          xset r on || true
+          timeout 2 xset r on || true
           repeat_disabled=false
         fi
-        sleep 0.25
+      }
+      trap restore_repeat EXIT
+      trap 'exit 0' INT TERM
+
+      # Bash handles signals immediately while its wait builtin is running.
+      # Waiting on a foreground inotifywait instead can defer the exit trap.
+      run_interruptibly() {
+        "$@" &
+        wait "$!"
+      }
+
+      live_steam_pid() {
+        local comm pid
+
+        [[ -r "$steam_pid_file" ]] || return 1
+        IFS= read -r pid < "$steam_pid_file"
+        [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/comm" ]] || return 1
+        IFS= read -r comm < "/proc/$pid/comm"
+        [[ "$comm" = steam ]] || return 1
+        printf '%s\n' "$pid"
+      }
+
+      monitor_steam() {
+        local comm pid="$1"
+
+        while [[ -r "/proc/$pid/comm" ]]; do
+          IFS= read -r comm < "/proc/$pid/comm" || break
+          [[ "$comm" = steam ]] || break
+
+          if pgrep --uid "$uid" --full '[/]reaper SteamLaunch AppId=[0-9]+' >/dev/null; then
+            if ! "$repeat_disabled" && xset r off; then
+              repeat_disabled=true
+            fi
+          elif "$repeat_disabled"; then
+            restore_repeat
+          fi
+          run_interruptibly sleep 1
+        done
+
+        restore_repeat
+      }
+
+      while true; do
+        if pid="$(live_steam_pid)"; then
+          monitor_steam "$pid"
+          continue
+        fi
+
+        # Steam leaves a stale steam.pid behind when it exits. Sleep in the
+        # kernel until it creates or rewrites that file instead of spawning
+        # pgrep four times per second for the entire graphical session.
+        if [[ -d "$steam_dir" ]]; then
+          run_interruptibly inotifywait --quiet \
+            --event close_write,create,moved_to \
+            "$steam_dir" >/dev/null || run_interruptibly sleep 1
+        else
+          run_interruptibly sleep 30
+        fi
       done
     '';
   };
@@ -49,6 +99,7 @@ in {
       ExecStart = "${manageSteamXwaylandKeyRepeat}/bin/manage-steam-xwayland-key-repeat";
       Restart = "always";
       RestartSec = 1;
+      TimeoutStopSec = 5;
     };
     Install.WantedBy = ["graphical-session.target"];
   };

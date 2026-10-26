@@ -63,7 +63,12 @@ apply_theme() {
 
   if tmux ls >/dev/null 2>&1; then
     tmux set-environment -g TMUX_COLOR_SCHEME "$theme" >/dev/null 2>&1 || true
-    tmux source-file "$HOME/.config/tmux/tmux.conf" >/dev/null 2>&1 || true
+    tmux source-file "$HOME/.config/tmux/theme-$theme.conf" >/dev/null 2>&1 || true
+    # Themes replace status-right. Reattach the autosave command after sourcing
+    # has finished, without reloading plugins or triggering another restore.
+    tmux if -F '#{!=:#{@continuum-save-last-timestamp},}' \
+      'set -gF status-right "##(#{@continuum-save-script})#{status-right}"' \
+      >/dev/null 2>&1 || true
   fi
 }
 

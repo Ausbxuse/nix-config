@@ -4,6 +4,34 @@
   pkgs,
   ...
 }: let
+  # Home Manager's plugin loader uses blocking run-shell commands. Continuum's
+  # background restore also inherits their output pipe, delaying the first
+  # client until all saved panes have been restored. Keep plugin order, but
+  # start the whole chain as one tmux background job after loading the config.
+  initializeTmuxPlugins = pkgs.writeShellScript "initialize-tmux-plugins" ''
+    set -eu
+
+    theme_cache="''${XDG_CACHE_HOME:-$HOME/.cache}/tmux/theme"
+    theme=dark
+    if [[ -r "$theme_cache" ]]; then
+      IFS= read -r theme < "$theme_cache" || true
+    fi
+    case "$theme" in
+      light|dark) ;;
+      *) theme=dark ;;
+    esac
+    tmux set-environment -g TMUX_COLOR_SCHEME "$theme"
+    tmux source-file "$HOME/.config/tmux/theme-$theme.conf"
+
+    ${pkgs.tmuxPlugins.sensible.rtp}
+    ${pkgs.tmuxPlugins.resurrect.rtp}
+    ${pkgs.tmuxPlugins.continuum.rtp}
+    # Custom bindings take precedence over plugin defaults (notably C-r).
+    tmux source-file ${./tmux.conf}
+    tmux set-option -g @tmux-plugins-ready 1
+  '';
+  continuumSaveScript = "${builtins.dirOf pkgs.tmuxPlugins.continuum.rtp}/scripts/continuum_save.sh";
+
   # Registers claude-notify.sh for the lifecycle hooks it handles, merging
   # into ~/.claude/settings.json without disturbing anything else there (the
   # file stays writable: Claude Code edits it itself, so no home.file link —
@@ -92,6 +120,28 @@ in {
     wl-clipboard
     xsel
   ];
+
+  # Start the same server that interactive terminals use. Continuum's generated
+  # unit used /tmp at login, before GNOME imported TMUX_TMPDIR into systemd, so
+  # the first terminal started a second server and repeated the entire restore.
+  # Home Manager's secureSocket setting supplies the terminal environment.
+  systemd.user.services.tmux = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
+    Unit = {
+      Description = "tmux default session (detached)";
+      Documentation = "man:tmux(1)";
+    };
+    Service = {
+      Type = "forking";
+      Environment = "TMUX_TMPDIR=%t";
+      ExecStart = "${config.programs.tmux.package}/bin/tmux new-session -d";
+      ExecStop = [
+        "${builtins.dirOf pkgs.tmuxPlugins.resurrect.rtp}/scripts/save.sh"
+        "${config.programs.tmux.package}/bin/tmux kill-server"
+      ];
+      KillMode = "process";
+    };
+    Install.WantedBy = ["default.target"];
+  };
 
   systemd.user.services.tmux-battery-time = {
     Unit = {
@@ -764,59 +814,59 @@ in {
   };
 
   programs.tmux = {
-    extraConfig = builtins.readFile ./tmux.conf;
+    extraConfig =
+      ''
+        set -g @resurrect-dir "$HOME/.local/share/tmux/resurrect"
+        set -g @resurrect-hook-post-save-all '$HOME/.local/bin/tmux/resurrect-workbench-save.sh'
+        set -g @resurrect-hook-pre-restore-pane-processes '$HOME/.local/bin/tmux/resurrect-workbench-restore.sh'
+        set -g @resurrect-hook-post-restore-all '$HOME/.local/bin/tmux/workbench.sh recover-restored'
+        set -g @resurrect-capture-pane-contents 'on'
+        # The save hook rewrites agent panes to `codex resume <id>` /
+        # `claude --resume <id>`; plain names replay that command verbatim.
+        set -g @resurrect-processes 'codex claude'
+        # A prompt can already be in use while background restoration runs.
+        set -g @resurrect-never-overwrite 'on'
+
+        set -g @continuum-restore 'on'
+        set -g @continuum-save-interval '5'
+        set -g @continuum-save-script '${continuumSaveScript}'
+        set -g @continuum-boot 'on'
+        set -g @continuum-boot-options 'ghostty'
+
+        set -g status-interval 2
+        # Keep the window list fixed when the left/right segments change width.
+        set -g status-justify absolute-centre
+        set -g status-position top
+        set -g status-style 'bg=default'
+        set -g status-left-length 50
+        set -g status-right-length 48
+        set -g status-bg 'default'
+        set -g status-keys emacs
+        # Show a theme immediately; the background initializer applies the
+        # cached selection before loading Continuum. Reloads preserve it and
+        # its autosave command, while the watcher handles GNOME theme changes.
+        if -F '#{!=:#{@tmux-plugins-initialized},1}' \
+          'source-file ~/.config/tmux/theme-dark.conf'
+      ''
+      + builtins.readFile ./tmux.conf
+      + ''
+
+        # Reloads (including GNOME theme changes) must not initialize plugins or
+        # restore sessions again during Continuum's first-ten-seconds window.
+        if -F '#{!=:#{@tmux-plugins-initialized},1}' {
+          set -g @tmux-plugins-initialized 1
+          run-shell -b '${initializeTmuxPlugins} >/dev/null 2>&1'
+        }
+      '';
     shortcut = lib.mkDefault "f";
     keyMode = "vi";
     baseIndex = 1;
     escapeTime = 20;
     historyLimit = 30000;
     aggressiveResize = true;
+    focusEvents = true;
     clock24 = true;
     terminal = "tmux-256color";
     mouse = true;
-
-    plugins = with pkgs.tmuxPlugins; [
-      sensible
-      {
-        plugin = resurrect;
-        extraConfig = ''
-
-          resurrect_dir="$HOME/.local/share/tmux/resurrect"
-          set -g @resurrect-dir $resurrect_dir
-          set -g @resurrect-hook-post-save-all '$HOME/.local/bin/tmux/resurrect-workbench-save.sh'
-          set -g @resurrect-hook-pre-restore-pane-processes '$HOME/.local/bin/tmux/resurrect-workbench-restore.sh'
-          set -g @resurrect-hook-post-restore-all '$HOME/.local/bin/tmux/workbench.sh recover-restored'
-          set -g @resurrect-capture-pane-contents 'on'
-          # The save hook rewrites agent panes to `codex resume <id>` /
-          # `claude --resume <id>`; plain names replay that command verbatim.
-          set -g @resurrect-processes 'codex claude'
-        '';
-      }
-      {
-        plugin = continuum; # needs resurrect present
-        extraConfig = ''
-            set -g status-interval 2          # keep agent state colors current
-            # absolute-centre: the window list stays put when the left/right
-            # segments change width (path, cpu, battery).
-            set -g status-justify absolute-centre
-            set -g status-position top
-            set -g status-style 'bg=default'  # transparent background
-            set -g status-left-length 50
-            set -g status-right-length 48
-            set -g status-bg 'default'
-            # GNOME reports light mode as 'default', so test for dark explicitly.
-            if-shell 'command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.desktop.interface color-scheme | grep -q prefer-dark' \
-              'source-file ~/.config/tmux/theme-dark.conf' \
-              'source-file ~/.config/tmux/theme-light.conf'
-
-
-            set -g @continuum-restore 'on'
-            set -g @continuum-save-interval '5'
-            set -g @continuum-boot 'on'
-            set -g @continuum-boot-options 'ghostty'
-          # set -g @continuum-systemd-start-cmd 'start-server'
-        '';
-      }
-    ];
   };
 }
