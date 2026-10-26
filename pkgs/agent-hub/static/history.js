@@ -6,8 +6,8 @@
   const progress=message=>message.role==='tool'||message.role==='assistant'&&(message.phase==='commentary'||message.channel==='commentary');
   const sourceKey=source=>source?JSON.stringify([source.host,source.session,source.generation]):'';
   class Preview {
-    constructor(){this.reset();}
-    reset(){this.original=null;}
+    constructor({now=()=>performance.now(),maxPendingMs=5000}={}){this.now=now;this.maxPendingMs=maxPendingMs;this.reset();}
+    reset(){this.original=null;this.pendingSince=null;}
     update(value){
       const previous=this.original,structured=Boolean(value.conversation_id||value.session_verified||value.messages?.length);
       const same=previous&&(value.conversation_id&&previous.conversation_id?
@@ -22,7 +22,17 @@
       const regressed=same&&!generationChanged&&last&&oldLast&&key(last)!==key(oldLast)&&
         previous.messages.some(message=>key(message)===key(last))&&
         !value.messages.some(message=>key(message)===key(oldLast));
-      if(previous&&(!structured||regressed)){
+      if(previous&&!structured){
+        if(this.pendingSince===null)this.pendingSince=this.now();
+        if(this.now()-this.pendingSince>=this.maxPendingMs){
+          // A different session can start inside the same pane. Brief redraws
+          // may keep the formatted chat; prolonged uncertainty shows live text.
+          this.reset();return {...value,conversation_pending:false};
+        }
+        return {...value,...previous,conversation_pending:true};
+      }
+      this.pendingSince=null;
+      if(previous&&regressed){
         return {...value,...previous,conversation_pending:true};
       }
       if(!structured)return value;
@@ -95,11 +105,11 @@
     get view(){return this.groups.slice(this.start,this.end);}
   }
   class Timeline {
-    constructor({limit=256,characters=2000000}={}){this.limit=limit;this.characters=characters;this.source=null;this.live=[];this.buffer=null;}
+    constructor({limit=256,characters=2000000}={}){this.limit=limit;this.characters=characters;this.source=null;this.live=[];this.buffer=null;this.revision=0;}
     update(messages,source){
       const identity=sourceKey(source);
       const changed=this.identity!==identity;
-      if(changed)this.buffer=null;
+      if(changed){this.buffer=null;this.revision++;}
       this.identity=identity;this.source=source||null;this.live=messages;
       return changed;
     }
@@ -107,17 +117,17 @@
     get past(){return Boolean(this.buffer);}
     get earlier(){return this.buffer?this.buffer.earlier:Boolean(this.source?.earlier);}
     get later(){return Boolean(this.buffer?.later);}
-    latest(){this.buffer=null;}
-    request(direction){
+    latest(){this.buffer=null;this.revision++;}
+    request(direction,{peek=false}={}){
       if(!this.source||!(direction==='older'?this.earlier:this.later))return null;
       const messages=this.messages.filter(message=>['user','assistant'].includes(message.role));
       const anchor=direction==='older'?(this.buffer?messages[0]?.id:this.source.anchor):messages.at(-1)?.id;
       if(!anchor)return null;
-      return {identity:this.identity,direction,base:{messages,earlier:this.earlier,later:this.later},
+      return {identity:this.identity,revision:peek?this.revision:++this.revision,direction,base:{messages,earlier:this.earlier,later:this.later},
         parameters:{host:this.source.host,session:this.source.session,generation:this.source.generation,message:anchor,direction:direction==='older'?'before':'after'}};
     }
     accept(request,page){
-      if(request.identity!==this.identity)return false;
+      if(request.identity!==this.identity||request.revision!==this.revision)return false;
       if(page.session!==this.source.session||page.generation!==this.source.generation||page.host!==this.source.host)throw Error('This history changed. Return to Latest and try again.');
       const older=request.direction==='older',seen=new Set(),incoming=content.messages(page.messages);
       const messages=(older?[...incoming,...request.base.messages]:[...request.base.messages,...incoming]).filter(message=>{const id=key(message);if(seen.has(id))return false;seen.add(id);return true;});
@@ -128,6 +138,7 @@
         if(older)later=true;else earlier=true;
       }
       this.buffer={messages,earlier:Boolean(earlier),later:Boolean(later)};
+      this.revision++;
       return true;
     }
   }

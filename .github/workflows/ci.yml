@@ -44,5 +44,6 @@ jobs:
             .#checks.x86_64-linux.shellcheck \
             .#checks.x86_64-linux.nvim \
             .#checks.x86_64-linux.custom-home-install \
+            .#checks.x86_64-linux.agent-hub-conversations \
             --no-link \
             $NIX_OVERRIDES

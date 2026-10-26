@@ -6,6 +6,34 @@ const message=(id,role='assistant',phase='',text='Message '+id)=>({id:String(id)
 
 const source={host:'gpu-004',session:'saved-session',generation:'version',anchor:'90',earlier:true};
 const archived=(start,end,extra={})=>({...source,messages:Array.from({length:end-start},(_,i)=>message(start+i)),earlier:start>0,later:end<100,...extra});
+test('unmatched live output eventually replaces a cached chat instead of syncing forever',()=>{
+  let now=0;
+  const preview=new Preview({now:()=>now,maxPendingMs:5000}),messages=archived(90,100).messages;
+  preview.update({messages,source:'original',conversation_id:'old',history_source:source,facts:{version:'old'}});
+  const capture={text:'› A different task\n• Current terminal reply.',observation:{state:'running'},queue:{version:'current'},facts:{version:'current'}};
+  for(now=0;now<5000;now+=1000){
+    const held=preview.update({...capture,text:capture.text+'\n'+'tool progress '.repeat(now/1000)});
+    assert.equal(held.messages,messages);assert(held.conversation_pending);
+    assert.equal(held.observation,capture.observation);assert.equal(held.queue,capture.queue);
+  }
+  const current=preview.update(capture);
+  assert.equal(current.text,capture.text);
+  assert(!current.messages?.length);assert(!current.conversation_id);assert(!current.history_source);
+  assert.equal(current.facts,capture.facts);assert(!current.conversation_pending);
+  now+=1000;assert(!preview.update(capture).messages?.length,'expired chats must not reappear');
+  const recovered=preview.update({messages:[message('new')],conversation_id:'current'});
+  assert.equal(recovered.messages[0].id,'new');assert(!recovered.conversation_pending);
+});
+test('a verified recovery starts a fresh grace period and switching chats clears the old cursor',()=>{
+  let now=0;const preview=new Preview({now:()=>now,maxPendingMs:5000});
+  preview.update({messages:[message('old')],conversation_id:'old',history_source:source});
+  preview.update({text:'repaint'});now=4900;
+  preview.update({messages:[message('current')],conversation_id:'current'});
+  now=5000;assert.equal(preview.update({text:'another repaint'}).messages[0].id,'current');
+  now=9900;const held=preview.update({text:'still repainting'});
+  assert.equal(held.messages[0].id,'current');assert(!held.history_source);
+  now=10000;assert(!preview.update({text:'current terminal'}).messages?.length);
+});
 test('a missing transcript preserves formatted messages and the archive cursor without freezing live status',()=>{
   const preview=new Preview(),messages=archived(90,100).messages;
   preview.update({messages,source:'original',conversation_id:'thread-a',history_source:source,facts:{version:'original'}});
@@ -38,6 +66,29 @@ test('a terminal match ending at an older reply does not rewind the same convers
   assert.equal(reset.messages.at(-1).id,'93');assert(!reset.conversation_pending);
   const empty=preview.update({messages:[],session_verified:true});
   assert.deepEqual(empty.messages,[]);assert.equal(empty.history_source,undefined);
+});
+test('returning to Latest rejects an older history page that finishes afterwards',()=>{
+  const timeline=new Timeline();timeline.update(archived(90,100).messages,source);
+  const pending=timeline.request('older');
+  timeline.latest();timeline.update(archived(90,101).messages,source);
+  assert(!timeline.accept(pending,archived(66,90)));
+  assert(!timeline.past);assert.equal(timeline.messages.at(-1).id,'100');
+  const retry=timeline.request('older');assert(timeline.accept(retry,archived(66,90)));
+  assert(!timeline.accept(pending,archived(66,90)));
+});
+test('out-of-order history responses cannot replace the most recent page request',()=>{
+  const timeline=new Timeline();timeline.update(archived(90,100).messages,source);
+  const first=timeline.request('older'),second=timeline.request('older');
+  assert(timeline.accept(second,archived(66,90)));
+  const current=timeline.messages;
+  assert(!timeline.accept(first,archived(42,66)));assert.equal(timeline.messages,current);
+  assert(!timeline.accept(second,archived(66,90)),'duplicate responses cannot apply twice');
+});
+test('checking whether scrolling can fetch more history does not cancel an in-flight page',()=>{
+  const timeline=new Timeline();timeline.update(archived(90,100).messages,source);
+  const pending=timeline.request('older');
+  for(let i=0;i<10;i++)assert(timeline.request('older',{peek:true}));
+  assert(timeline.accept(pending,archived(66,90)));
 });
 test('live tails load earlier indexed pages, deduplicate overlap, and retain new output for Latest',()=>{
   const timeline=new Timeline();timeline.update(archived(90,100).messages,source);

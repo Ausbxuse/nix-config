@@ -469,6 +469,7 @@
   });
   offlineInstallScript = mkInstallScript "install-flake-offline-test.sh" offlineRazyManifest;
 in {
+  agent-hub-conversations = pkgs.callPackage ./agent-hub-conversations.nix {};
   inherit shellcheck;
 
   "desktop-integration" =

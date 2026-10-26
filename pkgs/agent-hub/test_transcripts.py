@@ -185,6 +185,69 @@ class TranscriptTests(unittest.TestCase):
         self.write('one'); self.write('two')
         self.assertEqual(self.reader.match(self.agent, self.body), {})
 
+    def write_dialogue(self, name, messages):
+        path = self.day / ('rollout-' + name + '.jsonl')
+        records = [{'type':'session_meta','payload':{'cwd':'/project','id':name}}]
+        for index, (role, text) in enumerate(messages):
+            records.append({'type':'response_item','timestamp':str(index),'payload':{
+                'type':'message','role':role,'content':[{'type':'input_text' if role == 'user' else 'output_text','text':text}]}})
+        path.write_text('\n'.join(map(json.dumps, records)) + '\n')
+        self.reader.scanned = 0
+        return path
+
+    def test_restored_scrollback_does_not_outscore_the_current_session(self):
+        self.write('restored', body=self.body * 4)
+        current = ('The current session is checking why the supervisor shows an older conversation. '
+                   'The terminal contains restored scrollback from a previous task, followed by the '
+                   'new request and this shorter response about the chat history.')
+        path = self.write_dialogue('current', [('user', 'Fix the stale chat.'), ('assistant', current),
+                                               ('assistant', 'A later reply not yet displayed.')])
+        capture = '• ' + self.body * 4 + '\n› Fix the stale chat.\n• ' + current
+        for history in (False, True):
+            result = self.reader.match(self.agent, capture, history=history, binding=True)
+            self.assertEqual(result['archive_source'], str(path))
+            self.assertEqual(result['binding']['thread_id'], 'current')
+            self.assertEqual(result['messages'][-1]['text'], current)
+        # A longer old answer cannot resolve ambiguity in the newest dialogue.
+        self.write_dialogue('duplicate', [('assistant', current)])
+        self.assertEqual(self.reader.match(self.agent, capture, [str(path)], binding=True), {})
+
+    def short_exchange(self):
+        return [('user', 'For some reason, the agent supervisor shows stale messages for this session instead of the current conversation.'),
+                ('assistant', 'I will trace how Agent Hub selects the chat for this pane and check why the latest messages are missing from its preview.')]
+
+    def test_short_current_exchange_identifies_session_after_restored_scrollback(self):
+        self.write('restored', body=self.body * 4)
+        exchange = self.short_exchange()
+        path = self.write_dialogue('current', exchange)
+        capture = ('• ' + self.body * 4 + '\n› ' + exchange[0][1] + '\n• Ran check\n  └ done\n• ' + exchange[1][1])
+        for history in (False, True):
+            result = self.reader.match(self.agent, capture, history=history, binding=True)
+            self.assertEqual(result['archive_source'], str(path))
+            self.assertEqual([item['text'] for item in result['messages']], [text for _, text in exchange])
+        self.write_dialogue('duplicate', exchange)
+        self.assertEqual(self.reader.match(self.agent, capture, [str(path)]), {})
+
+    def test_short_exchange_requires_ordered_explicit_dialogue(self):
+        exchange = self.short_exchange()
+        self.write_dialogue('current', exchange)
+        prompt, reply = [text for _, text in exchange]
+        for capture in ('• ' + reply + '\n› ' + prompt,
+                        '• Ran echo\n  › ' + prompt + '\n  • ' + reply,
+                        '• Quoted example:\n```text\n› ' + prompt + '\n• ' + reply + '\n```',
+                        '› ' + prompt + '\n• An unrelated intervening reply.\n• ' + reply):
+            with self.subTest(capture=capture):
+                self.assertEqual(self.reader.match(self.agent, capture), {})
+
+    def test_repeated_short_acknowledgments_do_not_establish_identity(self):
+        reply = 'I am checking the current configuration and will report the results.'
+        self.write_dialogue('repeated', [('assistant', reply)] * 5)
+        self.assertEqual(self.reader.match(self.agent, '\n'.join(['• ' + reply] * 5)), {})
+
+    def test_tool_echo_is_not_assistant_identity_evidence(self):
+        self.write('one')
+        self.assertEqual(self.reader.match(self.agent, '• Ran cat transcript\n  ' + self.body.replace('\n', '\n  ')), {})
+
     def prompt_fixture(self, name='prompt', text=None, cwd='/project'):
         fixture = json.loads(Path(__file__).with_name('terminal-message-boundaries-fixtures.json').read_text())['prompt_diff_redraw']
         path = self.day / ('rollout-' + name + '.jsonl')
@@ -404,7 +467,7 @@ class TranscriptTests(unittest.TestCase):
             self.assertEqual(result['messages'][-1]['text'], text)
         hidden = self.reader.match(self.agent, self.body, history=True)
         self.assertEqual(len(hidden['messages']), 1)
-        old_prompt = self.reader.match(self.agent, '› continue\n' + self.body, history=True)
+        old_prompt = self.reader.match(self.agent, '› continue\n• ' + self.body, history=True)
         self.assertEqual(len(old_prompt['messages']), 1)
 
 class ClaudeTranscriptTests(unittest.TestCase):

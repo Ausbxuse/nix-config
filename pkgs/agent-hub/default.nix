@@ -10,10 +10,14 @@
     url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
     sha256 = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002";
   };
+  # whisper-cpp links the ggml shipped by llama-cpp; older versions bundled it.
+  ggml = lib.findFirst (p: (p.pname or "") == "llama-cpp") whisper whisper.propagatedBuildInputs;
   whisperWorker = pkgs.runCommandCC "agent-hub-whisper" {} ''
     mkdir -p "$out/bin"
     $CXX -std=c++17 -O2 -Wall -Wextra ${./whisper-worker.cpp} \
-      -I${whisper}/include -L${whisper}/lib -Wl,-rpath,${whisper}/lib \
+      -I${whisper}/include -I${lib.getDev ggml}/include \
+      -L${whisper}/lib -L${ggml.out}/lib \
+      -Wl,-rpath,${whisper}/lib -Wl,-rpath,${ggml.out}/lib \
       -lwhisper -lggml -lggml-base -o "$out/bin/agent-hub-whisper"
   '';
   kokoro = pkgs.python3Packages.callPackage ./kokoro.nix {};

@@ -1123,6 +1123,18 @@ python3 -m unittest discover -s pkgs/agent-hub -p 'test_*.py' -v
 
 Control integration tests use isolated tmux sockets and a stub worker. They
 never send instructions or interrupts to the user's existing agents.
+The conversation regression check also runs in CI:
+
+```sh
+nix build .#checks.x86_64-linux.agent-hub-conversations --no-link
+```
+
+It supplies Python, Node and tmux from the lock file. Transcript replays vary
+terminal width, capture depth, discovery order and stale hints, then exercise
+actual tmux capture and the preview HTTP endpoint using synthetic session logs.
+They cover short exchanges, clipped prompts, tool echoes, partial writes,
+replaced files and large tool records. Browser checks use a fake clock for
+unmatched-chat expiry and delayed history responses, without sleeps or a model.
 Run the suite in the hub's Python environment to include the optional NumPy
 audio conversion test; a standard-library-only environment skips that test.
 Set `AGENT_HUB_TEST_CODEX` to a Codex binary to enable the isolated native queue
@@ -1408,6 +1420,16 @@ Claude session, with a 500000-character response budget. Scroll farther upward t
 page through older indexed turns without opening history search. Unmatched
 sessions fall back to up to 2000 tmux lines
 (200000 characters). Private reasoning and tool payloads remain excluded.
+Visible matching prefers the newest supported dialogue, so a long reply in
+restored scrollback cannot select an older session. Consecutive exact short
+messages can establish identity together when no single reply is long enough.
+Tool echoes do not count, and overlapping ambiguous matches retain the terminal
+fallback even when a cached session or shared daemon supplies a file hint.
+New unmatched dialogue invalidates an older scrollback binding. Brief redraws
+can retain the formatted chat for five seconds; continued uncertainty shows the
+current terminal capture instead of leaving the reader syncing indefinitely.
+Full-history identity checks use the full 16 MB window, so a large tool result
+does not hide an otherwise visible reply after restarting the hub.
 Local Claude sessions use the process registry in `~/.claude/sessions` (or the
 configured Claude directory) to identify the original JSONL transcript. The
 registry PID and process start time, foreground process group, terminal device,

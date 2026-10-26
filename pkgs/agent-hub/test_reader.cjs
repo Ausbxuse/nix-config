@@ -5,6 +5,16 @@ const questionReply = replies => '<send_user_message_question_reply>\n' + JSON.s
 const replyItem = {question:'When should I notify you?',answer:'Only notify if I haven’t seen it',questionItemId:'["request_user_input_async","call_private",0]'};
 const promptRedraw = require('./terminal-message-boundaries-fixtures.json').prompt_diff_redraw;
 
+test('Codex exited-command rows remain tool output and nonzero exits stay visible as failures',()=>{
+  for(const status of [0,1,137]){
+    const capture=`• Exited (status ${status}) python3 check.py\n  Saved diagnostic output.\n• The current assistant reply.`;
+    assert.deepEqual(reader.parse(capture).map(block=>block.type),['tool','assistant']);
+    const html=reader.render(capture,[],true);
+    assert.equal(html.includes('tool-failed'),status!==0);
+    if(status!==0)assert.match(html,/reader-tool[^>]*\bopen/);
+  }
+});
+
 test('a partial terminal redraw never appends file changes to the user bubble', () => {
   const blocks = reader.parse(promptRedraw.capture);
   assert.deepEqual(blocks.map(b => b.type), ['input','output','tool']);

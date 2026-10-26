@@ -49,6 +49,7 @@ COMPLETED_AT = re.compile(
 RECAP_HEADER = re.compile(r"^[─━]+\s*Conversation recap\s*[─━]+\s*$", re.I)
 EDITOR_BORDER = re.compile(r"^[─━]{8,}\s*$")
 CODEX_STATUS = re.compile(r"^(?:GPT-|gpt-).+ · .+(?:left|context)")
+TOOL_PREFIX = re.compile(r'Ran |Failed \(exit |Exited \(status \d+\) |Explored\b|Edited |Called |Searched |Read \d+ |Wrote |Updated (?:plan|file)|(?:Bash|Read|Write|Edit|Grep|Glob|WebSearch|WebFetch|Task)\(')
 
 
 def terminal_rows(text):
@@ -138,7 +139,7 @@ def terminal_rows(text):
         marker = re.match(r'^[•●]\s+(.+)', line)
         if marker:
             role = ('queued' if marker[1].startswith('Queued follow-up inputs') else
-                    'tool' if re.match(r'Ran |Failed \(exit |Explored\b|Edited |Called |Searched |Read \d+ |Wrote |Updated (?:plan|file)|(?:Bash|Read|Write|Edit|Grep|Glob|WebSearch|WebFetch|Task)\(', marker[1]) else 'assistant')
+                    'tool' if TOOL_PREFIX.match(marker[1]) else 'assistant')
         elif re.match(r'^[›❯](?:\s|$)', line):
             role = 'input'
         rows.append(('content', line))

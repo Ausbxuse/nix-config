@@ -6,7 +6,8 @@
   const inline = (text) => escape(text).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   const border = (line) => /^\s*[┌┬┐├┼┤└┴┘┏┳┓┣╋┫┗┻┛╭╮╰╯─━┄┅┈┉|+\-\s]+$/.test(line) && /[─━┄┅┈┉-]{3}/.test(line);
   const cells = (line) => line.trim().replace(/^\|\s*|\s*\|$/g, "").split(/\s{2,}|\s*\|\s*/).map((cell) => cell.trim());
-  const tool = (text) => /^(?:Ran |Failed \(exit |Explored\b|Edited |Called |Searched |Read \d+ (?:files?|lines?)\b|Wrote |Updated (?:plan|file)|Bash\(|Read\(|Write\(|Edit\(|Grep\(|Glob\(|Web(?:Search|Fetch)\(|Task\(|Tool\b)/.test(text);
+  const tool = (text) => /^(?:Ran |Failed \(exit |Exited \(status \d+\) |Explored\b|Edited |Called |Searched |Read \d+ (?:files?|lines?)\b|Wrote |Updated (?:plan|file)|Bash\(|Read\(|Write\(|Edit\(|Grep\(|Glob\(|Web(?:Search|Fetch)\(|Task\(|Tool\b)/.test(text);
+  const failedTool = text => /^(?:Failed |Exited \(status [1-9]\d*\))/.test(text);
   const queueHint = (text) => /^(?:↳\s*)?shift\s*\+\s*(?:\S+\s+)?(?:to\s+)?edit last queued message(?:\s*[·•].*)?$/i.test(text);
   const activityRow = (text) => /^[•●✻✽✶✢✳·*]\s+[^()\n]+\((?:\d+[hms]\s*)+[•·][^)\n]*(?:esc to interrupt|tokens\b)[^)\n]*\)(?:\s*[·•].*)?[ \t]*$/i.test(text) ||
     /^[•●✻✽✶✢✳·*]\s+(?:Auto[- ]?)?Compacting(?:\s+(?:context|conversation))?\s*(?:…|\.{3})?(?:\s*\((?:\d+[hms]\s*)+(?:[•·][^)\n]*)?\))?(?:\s*·\s*\d+ background terminals? running(?:\s*·[^\n]*)?)?\s*$/i.test(text);
@@ -293,7 +294,7 @@
   }
   function blockHTML(block, index, group = "history") {
     if (block.type === 'hidden-queue') return '';
-    if (block.type === "tool") return fold(`reader-tool${/^Failed /.test(block.text) ? " tool-failed" : ""}`, `${group}-tool-${index}`, `<span class="reader-tool-label terminal-syntax">${terminal(block.lines[0])}</span>`, `<pre class="reader-code" tabindex="0"><code class="terminal-syntax">${terminal(block.text)}</code></pre>`, /^Failed /.test(block.text));
+    if (block.type === "tool") return fold(`reader-tool${failedTool(block.text) ? " tool-failed" : ""}`, `${group}-tool-${index}`, `<span class="reader-tool-label terminal-syntax">${terminal(block.lines[0])}</span>`, `<pre class="reader-code" tabindex="0"><code class="terminal-syntax">${terminal(block.text)}</code></pre>`, failedTool(block.text));
     if (block.type === "input" || block.type === "queued") {
       const queued = block.type === "queued";
       const text = queued ? block.text.replace(/^Queued follow-up inputs:?\n?/, "") : content.userText(block.text);
@@ -420,7 +421,7 @@
       if (blocks[index].type !== "tool") { output.push(blockHTML(blocks[index], index++)); continue; }
       const start = index;
       while (index < blocks.length && blocks[index].type === "tool") index++;
-      const tools = blocks.slice(start, index), failed = tools.some((block) => /^Failed /.test(block.text));
+      const tools = blocks.slice(start, index), failed = tools.some((block) => failedTool(block.text));
       output.push(fold(`reader-tools${failed ? " tool-failed" : ""}`, `history-tools-${start}${failed ? "-failed" : ""}`, `${tools.length} tool ${tools.length === 1 ? "step" : "steps"}${failed ? " · check failed step" : ""}`, tools.map((block, offset) => blockHTML(block, start + offset)).join(""), failed));
     }
     return output.join("");
@@ -447,7 +448,7 @@
     const tools = after.filter((block) => block.type === "tool");
     const remainder = after.filter((block) => block.type !== "tool");
     const latestHTML = latest >= 0 ? `<article class="reader-latest">${blockHTML(blocks[latest], latest, "latest")}</article>` : '<div class="reader-empty">No response in this capture yet.</div>';
-    return latestHTML + (tools.length ? fold("reader-fold", "activity", `Tool activity <span>${tools.length} ${tools.length === 1 ? "step" : "steps"}${latest >= 0 ? " since this response" : ""}</span>`, `<div class="reader-history">${tools.map((block, index) => blockHTML(block, index, "activity")).join("")}</div>`, tools.some((block) => /^Failed /.test(block.text))) : "") + remainder.map((block, index) => blockHTML(block, index, "following")).join("") + (earlier.length ? fold("reader-fold", "earlier", `Earlier output <span>${earlier.length} ${earlier.length === 1 ? "section" : "sections"} in this capture</span>`, `<div class="reader-history">${earlier.map((block, index) => blockHTML(block, index)).join("")}</div>`) : "");
+    return latestHTML + (tools.length ? fold("reader-fold", "activity", `Tool activity <span>${tools.length} ${tools.length === 1 ? "step" : "steps"}${latest >= 0 ? " since this response" : ""}</span>`, `<div class="reader-history">${tools.map((block, index) => blockHTML(block, index, "activity")).join("")}</div>`, tools.some((block) => failedTool(block.text))) : "") + remainder.map((block, index) => blockHTML(block, index, "following")).join("") + (earlier.length ? fold("reader-fold", "earlier", `Earlier output <span>${earlier.length} ${earlier.length === 1 ? "section" : "sections"} in this capture</span>`, `<div class="reader-history">${earlier.map((block, index) => blockHTML(block, index)).join("")}</div>`) : "");
   }
   // Retain unchanged DOM, including enhanced media, open tools and selections.
   // Compare source markup, not the DOM modified by Markdown enhancement.
@@ -581,7 +582,7 @@
       if(reader)reader.scrollTop=reader.scrollHeight;
       container.dispatchEvent(new CustomEvent('readerpage',{bubbles:true}));return true;
     }else if(!state.window[direction]?.()){
-      if(state.timeline.request(direction)){loadHistory(container,state,direction);return true;}
+      if(state.timeline.request(direction,{peek:true})){loadHistory(container,state,direction);return true;}
       if(direction==='newer'&&state.timeline.past)return page(container,'latest');
       return false;
     }

@@ -15,7 +15,7 @@ import re
 import threading
 import time
 
-from bridge import terminal_content
+from bridge import CODEX_PLACEHOLDERS, TOOL_PREFIX, terminal_content
 from claude_sessions import ClaudeSessions
 from message_content import user_text
 
@@ -31,8 +31,8 @@ def visible_variants(text, cwd):
         text, text.replace(cwd.rstrip("/") + "/", ""), labels)))
 
 
-def visible_prompts(capture):
-    """Explicit prompt records, with clipping kept separate from their contents.
+def visible_dialogue(capture):
+    """Terminal message boundaries, excluding markers inside fenced examples.
 
     A tool redraw can leave a prompt followed by a partial diff. Only a full
     native message or the prefix before a visible clipping marker is evidence;
@@ -54,16 +54,76 @@ def visible_prompts(capture):
         elif record := re.match(r'^[•●›❯■](?:[ \t]+|$)', line.rstrip('\n')):
             records.append((record[0][0], offset, offset + record.end()))
         offset += len(line)
-    prompts = []
+    prefix = capture[:records[0][1]] if records else capture
+    dialogue = [('partial', normalized(prefix), '', 0)] if prefix.strip() else []
     for index, (marker, _, start) in enumerate(records):
-        if marker not in '›❯':
-            continue
         end = records[index + 1][1] if index + 1 < len(records) else len(capture)
         text = capture[start:end]
         clipped = re.search(r"(?:…|\.{3})[ \t]*(?:\n|$)", text)
-        prompts.append((normalized(text), normalized(text[:clipped.start()]) if clipped else '',
-                        len(normalized(capture[:start]))))
-    return prompts
+        role = ('user' if marker in '›❯' else
+                'assistant' if marker in '•●' and not TOOL_PREFIX.match(text) and
+                not text.startswith('Queued follow-up inputs') else 'tool')
+        if role == 'user' and index == len(records) - 1 and text.strip() in CODEX_PLACEHOLDERS:
+            role = 'tool'  # The empty composer's hint is not a submitted input.
+        dialogue.append((role, normalized(text), normalized(text[:clipped.start()]) if clipped else '',
+                         len(normalized(capture[:start]))))
+    return dialogue
+
+
+def assistant_evidence(variants, dialogue):
+    """Substantial, distinct fragments in order within one assistant record."""
+    best = (0, 0, 0)
+    for body in variants:
+        chunks = tuple(dict.fromkeys(body[start:start + 80] for start in range(0, len(body) - 79, 80)))
+        for role, text, _, offset in dialogue:
+            if role not in ('assistant', 'partial') or len(text) < 160:
+                continue
+            positions, cursor = [], 0
+            for chunk in chunks:
+                start = text.find(chunk, cursor)
+                if start >= 0:
+                    positions.append(start)
+                    cursor = start + len(chunk)
+            score = 80 * len(positions)
+            if score >= 160:
+                evidence = (score, offset + positions[0], offset + cursor)
+                if (evidence[2], score) > (best[2], best[0]):
+                    best = evidence
+    return best
+
+
+def short_dialogue_evidence(messages, dialogue, cwd):
+    """Combine consecutive, exact short messages in their native order.
+
+    A resumed pane may show several short exchanges and no single 160-character
+    reply. Require the same amount of distinct text across explicit dialogue
+    records; tool echoes, reordered replies and repeated acknowledgments cannot
+    establish identity.
+    """
+    lookup = {}
+    for index, message in enumerate(messages):
+        role = message.get('role')
+        variants = visible_variants(message['text'], cwd) if role == 'assistant' else (normalized(message['text']),)
+        for body in variants:
+            if role in ('user', 'assistant') and 12 <= len(body) < 160:
+                lookup.setdefault((role, body), []).append(index)
+    chains, best = [], None
+    for role, body, _, start in dialogue:
+        if role == 'tool' or len(body) < 12:
+            continue
+        next_chains = []
+        for index in lookup.get((role, body), []):
+            options = [(len(body), start, frozenset((body,)))]
+            options.extend((score + (0 if body in seen else len(body)), begin, seen | {body})
+                           for previous, score, begin, seen in chains if previous < index)
+            score, begin, seen = max(options, key=lambda item: item[0])
+            next_chains.append((index, score, begin, seen))
+            if score >= 160:
+                candidate = (score, begin, start + len(body), index)
+                if best is None or (candidate[2], score) > (best[2], best[0]):
+                    best = candidate
+        chains = next_chains
+    return best
 
 
 def prompt_evidence(body, prompts):
@@ -73,7 +133,7 @@ def prompt_evidence(body, prompts):
         size = len(body) if text == body else len(clipped) if clipped and body.startswith(clipped) else 0
         if size >= 160:
             evidence.append((size, start + size))
-    return max(evidence, default=(0, 0))
+    return max(evidence, key=lambda item: (item[1], item[0]), default=(0, 0))
 
 
 def input_text_parts(content):
@@ -419,8 +479,8 @@ class Transcripts:
         runtime = agent.get("runtime")
         if runtime not in ("codex", "claude") or len(capture) < 160:
             return {}
-        visible = normalized(capture)
-        prompt_records = visible_prompts(capture)
+        dialogue = visible_dialogue(capture)
+        prompt_records = [(body, clipped, start) for role, body, clipped, start in dialogue if role == 'user']
         matches = []
         with self.lock:
             if runtime == "claude":
@@ -444,64 +504,74 @@ class Transcripts:
                     continue
             for path in paths:
                 try:
-                    cwd, messages = self.read_claude(path) if runtime == "claude" else self.read(path)
+                    cwd, messages = self.read_claude(path, history) if runtime == "claude" else self.read(path, history)
                 except (OSError, ValueError, TypeError):
                     continue
                 if cwd != agent.get("cwd"):
                     continue
+                evidence = short_dialogue_evidence(messages, dialogue, cwd)
                 for index in range(len(messages) - 1, -1, -1):
                     role = messages[index].get("role")
                     if role not in ('assistant', 'user'):
                         continue
-                    visible_end = None
                     if role == 'user':
-                        anchor = normalized(messages[index]['text'])
-                        score, visible_end = prompt_evidence(anchor, prompt_records)
+                        body = normalized(messages[index]['text'])
+                        score, visible_end = prompt_evidence(body, prompt_records)
+                        visible_start = visible_end - score
                     else:
                         # Multiple substantial windows tolerate terminal-rendered
                         # links, tables and wrapping without fuzzy cross-pane guesses.
                         variants = visible_variants(messages[index]["text"], cwd)
-                        score, anchor = max((sum(80 for start in range(0, len(body) - 79, 80)
-                                                 if body[start:start + 80] in visible), body) for body in variants)
+                        score, visible_start, visible_end = assistant_evidence(variants, dialogue)
                     if score >= 160:
-                        cached = self.cache.get((path.resolve(), runtime, False), {})
-                        identity = {'thread_id': cached.get('view', {}).get('session', ''),
-                                    'path': str(path.resolve()), 'cwd': cwd} if runtime == 'codex' else {}
-                        matches.append((score, path, index, messages, anchor, identity, visible_end))
+                        if evidence is None or visible_end > evidence[2]:
+                            evidence = (score, visible_start, visible_end, index)
                         break
-        matches.sort(key=lambda row: row[0], reverse=True)
-        if not matches or (len(matches) > 1 and matches[0][0] - matches[1][0] < 160):
+                if evidence:
+                    score, visible_start, visible_end, index = evidence
+                    cached = self.cache.get((path.resolve(), runtime, bool(history)), {})
+                    identity = {'thread_id': cached.get('view', {}).get('session', ''),
+                                'path': str(path.resolve()), 'cwd': cwd} if runtime == 'codex' else {}
+                    matches.append((score, path, index, messages, identity, visible_start, visible_end))
+        if not matches:
             return {}
-        _, path, index, messages, anchor, identity, visible_end = matches[0]
+        # Restored scrollback can contain a much longer reply from an earlier
+        # session. Prefer the newest evidence, retaining the ambiguity margin
+        # for candidates that overlap the same visible dialogue.
+        latest = max(matches, key=lambda row: row[-1])
+        matches = sorted((row for row in matches if row[-1] > latest[-2]), key=lambda row: row[0], reverse=True)
+        if len(matches) > 1 and matches[0][0] - matches[1][0] < 160:
+            return {}
+        _, path, index, messages, identity, _, anchor_end = matches[0]
+        # A terminal user turn is visible before its reply exists. Verify both
+        # roles against this pane, including short inputs such as "continue".
+        for later in range(index + 1, len(messages)):
+            body = normalized(messages[later]["text"])
+            role = messages[later].get('role')
+            variants = visible_variants(messages[later]['text'], agent.get('cwd', '')) if role == 'assistant' else (body,)
+            ends = []
+            for visible_role, text, clipped, start in dialogue:
+                if role == 'assistant' and visible_role == 'partial':
+                    # The first record can start above the captured viewport.
+                    ends.extend(start + found + len(value) for value in variants if len(value) >= 12
+                                and (found := text.find(value, max(0, anchor_end - start))) >= 0)
+                elif visible_role == role and start >= anchor_end and body:
+                    if text in variants or (role == 'user' and len(clipped) >= 160 and body.startswith(clipped)):
+                        ends.append(start + (len(clipped) if text not in variants else len(text)))
+            if ends:
+                index, anchor_end = later, min(ends)
+        # A new session can begin in the same pane before enough of its log is
+        # available to identify it. Older scrollback must not supply a binding
+        # or hide the new terminal dialogue in that interval.
+        if any(role in ('user', 'assistant') and text and start >= anchor_end
+               for role, text, _, start in dialogue):
+            return {}
         if agent.get('id'):
             with self.lock:
                 self.matched_paths[agent['id']] = str(path.resolve())
                 self.matched_paths.move_to_end(agent['id'])
                 while len(self.matched_paths) > 128:
                     self.matched_paths.popitem(last=False)
-        if history:
-            matched = messages[index]["id"]
-            with self.lock:
-                _, expanded = self.read_claude(path, True) if runtime == "claude" else self.read(path, True)
-            found = [i for i, item in enumerate(expanded) if item["id"] == matched and item.get("role") == messages[index].get("role")]
-            if found:
-                messages, index = expanded, found[-1]
-        # A terminal user turn is visible before its reply exists. Verify both
-        # roles against this pane, including short inputs such as "continue".
-        ends = [visible.rfind(anchor[start:start + 80]) + 80 for start in range(0, len(anchor) - 79, 80) if anchor[start:start + 80] in visible]
-        anchor_end = visible_end if visible_end is not None else max(ends, default=0)
-        prompts = [normalized(capture[match.end():]) for match in re.finditer(r"(?m)^[›❯][ \t]+", capture)
-                   if len(normalized(capture[:match.start()])) >= anchor_end]
-        for later in range(index + 1, len(messages)):
-            body = normalized(messages[later]["text"])
-            if messages[later].get("role") == "assistant":
-                variants = visible_variants(messages[later]["text"], agent.get("cwd", ""))
-                ends = [start + len(value) for value in variants if len(value) >= 12
-                        and (start := visible.find(value, anchor_end)) >= 0]
-                if ends:
-                    index, anchor_end = later, min(ends)
-            elif messages[later].get("role") == "user" and body and any(prompt.startswith(body) for prompt in prompts):
-                index = later
         # Stop at the actual matched message, not a newer invisible reply.
         selected = messages[max(0, index - (199 if history else 7)):index + 1]
         while sum(len(item["text"]) for item in selected) > (500_000 if history else 150_000) and len(selected) > 1:
