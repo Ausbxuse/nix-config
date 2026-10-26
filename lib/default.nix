@@ -32,6 +32,7 @@
     import nixpkgs {
       inherit system;
       config.allowUnfree = true;
+      overlays = import ../overlays;
     });
   forEachSystem = f: forAllSystems (system: f {
     inherit system;
