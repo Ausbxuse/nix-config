@@ -16,9 +16,8 @@
       jupyter
       thunderbird-bin
       brave
-      (libreoffice.override {
-        unwrapped = libreoffice.unwrapped.override {langs = ["en-US"];};
-      })
+      # Stock build so it comes from the binary cache (a langs override compiles for hours).
+      libreoffice
       # PDFLaTeX and the resume template's fonts/packages; latexmk also serves VimTeX.
       (texliveBasic.withPackages (ps:
         with ps; [

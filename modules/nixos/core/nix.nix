@@ -13,9 +13,26 @@
       allowUnfree = true;
       allowUnfreePredicate = _: true;
     };
+    overlays = [
+      (_final: prev: {
+        pythonPackagesExtensions =
+          prev.pythonPackagesExtensions
+          ++ [
+            (_pyfinal: pyprev: {
+              # reuse 6.2.0's sphinx man builder produces no pages, so the `man`
+              # output is never created (pulled in by amberol). Drop it until fixed.
+              reuse = pyprev.reuse.overridePythonAttrs (old: {
+                outputs = lib.remove "man" old.outputs;
+                sphinxBuilders = lib.remove "man" old.sphinxBuilders;
+              });
+            })
+          ];
+      })
+    ];
   };
 
-  programs.command-not-found.enable = true;
+  # programs.sqlite only ships in channel tarballs; nix-index (home profile) covers this.
+  programs.command-not-found.enable = false;
 
   programs.nix-ld.enable = true;
   # programs.nix-ld.libraries = with pkgs; [

@@ -1,5 +1,9 @@
-{...}: {
-  boot.kernelParams = [
+{
+  config,
+  lib,
+  ...
+}: {
+  boot.kernelParams = lib.optionals config.boot.plymouth.enable [
     "quiet"
     "splash"
     "vga=current"
@@ -9,7 +13,6 @@
   ];
   boot.plymouth.enable = true;
   boot.plymouth.theme = "breeze";
-  boot.initrd.systemd.enable = true;
   # boot.consoleLogLevel = 0;
   # boot.initrd.verbose = false;
 }

@@ -6,9 +6,9 @@
   ...
 }: let
   system = pkgs.stdenv.hostPlatform.system;
-  codex = pkgs.callPackage ../../pkgs/codex-live-theme {
-    upstream = inputs.codex-cli-nix.packages.${system}.default;
-  };
+  # Stock prebuilt release; pkgs/codex-live-theme (live palette patch) is
+  # parked because it forced a full Rust build on every version bump.
+  codex = inputs.codex-cli-nix.packages.${system}.default;
   codexModel = "gpt-5.6-sol";
   codexReasoningEffort = "max";
   agentMaxThreads = 5;
@@ -112,8 +112,8 @@
       )
 
       tui = ensure_table(doc, "tui")
-      # Automatic syntax selection follows the runtime terminal palette.
-      tui.pop("theme", None)
+      # ANSI-palette syntax colors follow light/dark terminal switches live.
+      tui["theme"] = "ansi"
       tui["status_line"] = status_line
       tui["status_line_use_colors"] = True
       tui["notifications"] = ["approval-requested", "plan-mode-prompt"]

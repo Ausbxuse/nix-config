@@ -15,13 +15,13 @@
       owner = "openai";
       repo = "codex";
       tag = "rust-v${version}";
-      hash = "sha256-Fa9dfiGJy+uqSF4A0EM6AQQhhjQdu+jfhKzqXid9PNA=";
+      hash = "sha256-iib2+qQcGewC4Ga8cA80sInDJpzdSxDJP0y1DDOouI4=";
     };
     sourceRoot = "${src.name}/codex-rs";
     cargoDeps = rustPlatform.fetchCargoVendor {
       inherit src sourceRoot;
       name = "codex-${version}-vendor";
-      hash = "sha256-TG1fDHQCRDDbk+G0NS/9NTouJupq0Zisi4LIJY4SgYw=";
+      hash = "sha256-0N2mEGqEl2ZjWqlbraVCWP0eoITgwmT9uO/1w/1eJno=";
     };
     patches = [./codex.patch];
     patchFlags = ["-p2"];

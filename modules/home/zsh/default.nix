@@ -51,7 +51,7 @@ in {
   programs.carapace = {
     enable = true;
     enableZshIntegration = false;
-    ignoreCase = true;
+    environment.CARAPACE_MATCH = "1"; # case-insensitive matching
   };
 
   programs.atuin = {
