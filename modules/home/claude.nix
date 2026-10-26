@@ -21,6 +21,15 @@
     # Auto mode as the default on every host, not only where it was opted
     # into once (that choice lives in the per-host ~/.claude.json).
     permissions.defaultMode = "auto";
+    theme = "custom:snappy";
+    editorMode = "vim";
+    model = "opus";
+    effortLevel = "high";
+    modelSettings = {
+      claude-fable-5-1.effortLevel = "low";
+      claude-opus-5-5.effortLevel = "high";
+    };
+    feedbackDrafts = "off";
   };
   mergeSettings = pkgs.writers.writePython3 "merge-claude-settings" {} ''
     import json
@@ -222,6 +231,13 @@ in {
   home.activation.mergeClaudeSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
     run ${mergeSettings} ${lib.escapeShellArg "${config.home.homeDirectory}/.claude/settings.json"} \
       ${lib.escapeShellArg (builtins.toJSON settings)}
+    # "custom:snappy" needs the theme file. On GNOME the theme watcher
+    # (tmux/theme-watch.sh) swaps it per scheme; elsewhere seed the dark one.
+    themes=${lib.escapeShellArg "${config.home.homeDirectory}/.claude/themes"}
+    if [[ ! -e "$themes/snappy.json" ]]; then
+      run mkdir -p "$themes"
+      run install -m 644 ${config.xdg.dataFile."claude-themes/snappy-dark.json".source} "$themes/snappy.json"
+    fi
   '';
 
   # Status line showing the 5h and weekly usage limits ("statusLine" above).
