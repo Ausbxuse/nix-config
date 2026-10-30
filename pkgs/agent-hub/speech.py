@@ -4,6 +4,7 @@ from array import array
 from collections import OrderedDict
 import hashlib
 import io
+import json
 import importlib.util
 import math
 import os
@@ -127,8 +128,15 @@ class AudioCache:
                 self.items.popitem(last=False)
 
 
+# How long a sentence may take from the remote voice before Kokoro says it instead.
+REMOTE_WAIT = 5
+
+
 class LocalSpeech:
-    def __init__(self):
+    def __init__(self, remote=''):
+        # A voice on another machine (LESLEY's GPU voice: POST /speak, /warm), asked first;
+        # Kokoro here speaks whatever it can't in time.
+        self.remote = remote.rstrip('/')
         self.model = Path(os.environ.get('AGENT_HUB_WHISPER_MODEL', '/nonexistent'))
         self.executable = os.environ.get('AGENT_HUB_WHISPER_WORKER') or shutil.which('agent-hub-whisper')
         self.lock = SpeechLane('asr')
@@ -204,6 +212,8 @@ class LocalSpeech:
                 pass  # A real request reports errors and retries startup.
             finally:
                 lock.release()
+        if self.remote:
+            threading.Thread(target=self._remote, args=('/warm', b'{}', 3), daemon=True).start()
         status = self.status()
         for available, lock, function in [
             (status['available'], self.lock, lambda: self._get_worker().start()),
@@ -238,11 +248,26 @@ class LocalSpeech:
         with self.voice_lock.request(work, ready=cached is not None):
             return cached if cached is not None else self._speak(text)
 
+    def _remote(self, path, body, timeout):
+        import urllib.request
+        request = urllib.request.Request(self.remote + path, data=body, headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (OSError, ValueError):
+            return None
+
     def _speak(self, text):
         try:
             cached = self.audio.get(text)
             if cached is not None:
                 return cached
+            if self.remote:
+                # A sentence takes it about a second; longer, it's loading or busy: Kokoro's turn.
+                audio = self._remote('/speak', json.dumps({'text': text}).encode(), REMOTE_WAIT)
+                if audio and audio[:4] == b'RIFF':
+                    self.audio.put(text, audio)
+                    return audio
             import numpy as np
             voice = self._get_voice()
             g2p = self._get_g2p()

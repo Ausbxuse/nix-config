@@ -197,6 +197,28 @@ class SpeechTests(unittest.TestCase):
         self.assertEqual(voice.create.call_args.kwargs['voice'], 'af_heart')
         self.assertEqual(sorted(p.name for p in speech.model.parent.iterdir()), ['model.bin', 'model.voices'])
 
+    def test_remote_voice_speaks_first_and_kokoro_takes_what_it_cannot(self):
+        speech = self.speech
+        speech.remote = 'http://127.0.0.1:8799'
+        speech.voice_available = True
+        speech.voice_model = speech.voice_voices = speech.model
+        replies = {'Ready.': b'RIFF remote audio', 'Late.': None}
+        asked = []
+        def remote(path, body, timeout):
+            text = json.loads(body)['text']
+            asked.append((path, text, timeout))
+            return replies[text]
+        speech._remote = remote
+        kokoro = Mock(return_value=b'RIFF kokoro audio')
+        with patch.object(speech, '_get_voice', side_effect=AssertionError('the remote voice answered')):
+            self.assertEqual(speech.speak('Ready.'), b'RIFF remote audio')
+        self.assertEqual(asked, [('/speak', 'Ready.', 5)])
+        self.assertEqual(speech.speak('Ready.'), b'RIFF remote audio', 'kept like any clip')
+        with patch.object(speech, '_get_voice', side_effect=OSError('no kokoro here')):
+            with self.assertRaises(SpeechError):
+                speech.speak('Late.')
+        self.assertEqual(asked[-1][:2], ('/speak', 'Late.'), 'asked first, then Kokoro was tried')
+
     def test_playback_rejects_unbounded_input_and_busy_requests(self):
         for text in [None, '', ' ', 'x' * 401, 'bad\x00text']:
             with self.assertRaises(SpeechError) as result:

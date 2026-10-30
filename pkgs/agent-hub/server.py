@@ -102,7 +102,7 @@ class Hub:
         self.reads = SharedReads()
         self.terminal_themes = SharedReads(ttl=15)
         self.live = LiveFeed(self.snapshot, self.preview, self.stop)
-        self.speech = LocalSpeech()
+        self.speech = LocalSpeech((node_config or {}).get('voice_remote', ''))
         self.csrf = secrets.token_urlsafe(32)
         self.backups = BackupStatus(self)
         self.poll_interval = poll_interval
