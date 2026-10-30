@@ -384,6 +384,20 @@ class RoutingTests(unittest.TestCase):
             bridge.choose(self.local, expected, 3)
             self.assertEqual(run.call_args[0][1][-1], "3")
 
+    def test_claude_takes_a_message_mid_turn_only_into_an_empty_box(self):
+        expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', return_value='screen'), \
+                patch.object(bridge, 'classify', return_value=('running', '')), patch('claude_models.empty_editor', return_value=True), \
+                patch.object(bridge, 'paste') as paste:
+            self.assertEqual(bridge.queue(self.local, expected, 'also check the tests'), 'queued')
+            paste.assert_called_once()
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', return_value='screen'), \
+                patch.object(bridge, 'classify', return_value=('running', '')), patch('claude_models.empty_editor', return_value=False), \
+                patch.object(bridge, 'paste') as paste:
+            with self.assertRaisesRegex(bridge.BridgeError, 'draft or open menu'):
+                bridge.queue(self.local, expected, 'x')
+            paste.assert_not_called()
+
     def test_message_is_stdin_not_shell_code(self):
         expected = bridge.parse_panes(row(), self.local)[0]
         message = "literal `touch /tmp/no` and $(do-not-run)\nnext line"

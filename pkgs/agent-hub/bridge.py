@@ -444,10 +444,27 @@ def send(connection, agent, message):
 
 
 def queue(connection, agent, message):
-    """Use Codex's native deferred-input key; never interrupt the current turn."""
+    """Use Codex's native deferred-input key; never interrupt the current turn.
+
+    Claude Code holds a message typed mid-turn and takes it when it can, so for Claude the
+    message is typed into its input box with Enter, but only while that box is empty (no draft
+    of the user's, no menu open).
+    """
     current = verify_agent(connection, agent)
+    if current.get('runtime') == 'claude':
+        if not isinstance(message, str) or not message.strip() or len(message) > 12000 or '\x00' in message:
+            raise BridgeError('Queue a message between 1 and 12,000 characters.')
+        screen = capture(connection, current['pane'], 0)
+        state, _ = classify(current, screen)
+        if state == 'waiting':
+            raise BridgeError('This agent has an interactive decision. Resolve it in tmux first.')
+        from claude_models import empty_editor
+        if not empty_editor(current, screen):
+            raise BridgeError('This agent has a terminal draft or open menu. Finish it before sending.')
+        paste(connection, current, message)
+        return 'queued' if state == 'running' else 'sent'
     if current.get('runtime') != 'codex':
-        raise BridgeError('Queuing is available for Codex agents.')
+        raise BridgeError('Queuing is available for Codex and Claude agents.')
     if not isinstance(message, str) or not message.strip() or len(message) > 12000 or '\x00' in message:
         raise BridgeError('Queue a message between 1 and 12,000 characters.')
     if message.lstrip().startswith(('/', '!')):
