@@ -29,7 +29,10 @@
   services = {
     openssh = {
       enable = true;
-      # settings.PasswordAuthentication = true;
+      # Keys only (adminAccess.authorizedKeys, ~/.ssh/authorized_keys): a
+      # password login is guessable by anything that can reach port 22.
+      settings.PasswordAuthentication = false;
+      settings.KbdInteractiveAuthentication = false;
       # Let a new login replace the clipboard socket a dropped one left behind.
       settings.StreamLocalBindUnlink = true;
     };
@@ -45,6 +48,22 @@
     Host ${lib.concatStringsSep " " ownHosts}
       RemoteForward /run/user/%i/ssh-clipboard.sock /run/user/%i/ssh-clipboard-serve.sock
   '';
+
+  # The tailnet is trusted (Headscale's ACL decides who reaches what there);
+  # other networks such as public Wi-Fi only see SSH and the LAN services
+  # opened here. openssh opens 22 itself.
+  networking.firewall = {
+    enable = true;
+    trustedInterfaces = ["tailscale0"];
+    # Strict reverse-path filtering drops Tailscale's routed traffic.
+    checkReversePath = "loose";
+    # Syncthing (a Home Manager service, so nothing opens these for it):
+    # sync, then local discovery.
+    allowedTCPPorts = [22000];
+    allowedUDPPorts = [22000 21027];
+  };
+  # Direct WireGuard paths instead of DERP relays.
+  services.tailscale.openFirewall = lib.mkDefault true;
 
   environment.localBinInPath = true;
   environment.systemPackages = with pkgs; [
@@ -79,6 +98,5 @@
       networkmanager-openvpn
     ];
   };
-  networking.firewall.enable = lib.mkDefault false;
   services.fwupd.enable = true;
 }

@@ -101,6 +101,19 @@ in {
     ];
   };
 
+  # GSConnect (phone <-> desktop over the local network).
+  networking.firewall = let
+    gsconnect = [
+      {
+        from = 1714;
+        to = 1764;
+      }
+    ];
+  in {
+    allowedTCPPortRanges = gsconnect;
+    allowedUDPPortRanges = gsconnect;
+  };
+
   programs.ssh = {
     startAgent = false; # we want gpg-agent, not ssh-agent
     enableAskPassword = false; # don’t ever set SSH_ASKPASS
