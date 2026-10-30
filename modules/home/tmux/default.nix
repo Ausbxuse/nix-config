@@ -194,6 +194,10 @@ in {
     source = ./client-origin.sh;
     executable = true;
   };
+  home.file.".local/bin/tmux/server-sensors.sh" = {
+    source = ./server-sensors.sh;
+    executable = true;
+  };
   home.file.".local/bin/agent-resurrect" = {
     source = ./agent-resurrect.sh;
     executable = true;
