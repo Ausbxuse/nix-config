@@ -20,6 +20,10 @@ in {
       package = cfg.package;
       inherit (cfg) nodeConfig;
     };
+    # install-service.sh relinks these to its own build for quick rollouts;
+    # take them back on activation instead of aborting the whole switch.
+    xdg.configFile."systemd/user/agent-hub.service".force = true;
+    xdg.configFile."systemd/user/default.target.wants/agent-hub.service".force = true;
     systemd.user.services.agent-hub-backup = lib.mkIf cfg.backup.enable
       (import ../../pkgs/agent-hub/backup-service.nix {package = pkgs.callPackage ../../pkgs/agent-hub/backup.nix {};}).service;
     systemd.user.timers.agent-hub-backup = lib.mkIf cfg.backup.enable
