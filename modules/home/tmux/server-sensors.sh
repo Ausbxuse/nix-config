@@ -25,6 +25,7 @@ if [ -r "$mic_file" ]; then
 fi
 
 out=""
-[ "$have_fan" = 1 ] && out="F${fan}"
+# Round to 0.1k RPM; the raw value moves on every 2 s refresh.
+[ "$have_fan" = 1 ] && out="F$(( (fan + 50) / 1000 )).$(( (fan + 50) % 1000 / 100 ))k"
 [ -n "$mic_db" ] && out="${out:+$out }${mic_db}dB"
 [ -n "$out" ] && printf '%s ' "$out"
