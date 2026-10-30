@@ -23,6 +23,7 @@
     "GDK_PIXBUF_MODULE_FILE"
     "GST_PLUGIN_SYSTEM_PATH_1_0"
     "LD_LIBRARY_PATH"
+    "LD_PRELOAD"
     "LIBGL_DRIVERS_PATH"
     "LIBVA_DRIVERS_PATH"
     "GBM_BACKENDS_PATH"
@@ -57,6 +58,31 @@
         ${config.home.pointerCursor.package}/share/icons/${config.home.pointerCursor.name}/cursors $out \
         --size ${toString config.home.pointerCursor.size}
     '';
+  # libwayland caps a client's outgoing buffer at 4 KiB unless the toolkit
+  # raises it, and GTK 4.22 never does. Kitty image previews (Yazi) can fill
+  # it faster than GNOME Shell drains it; GTK then treats EAGAIN as fatal and
+  # Ghostty exits with "Error flushing display: Resource temporarily
+  # unavailable". Raise the cap right after GTK connects.
+  waylandBufferShim = pkgs.runCommandCC "ghostty-wayland-buffer-shim" {} ''
+    mkdir -p $out/lib
+    cc -O2 -shared -fPIC -o $out/lib/libghostty-wayland-buffer.so -x c - <<'EOF'
+    #define _GNU_SOURCE
+    #include <dlfcn.h>
+    #include <stddef.h>
+
+    struct wl_display;
+
+    struct wl_display *wl_display_connect(const char *name) {
+      struct wl_display *(*connect)(const char *) =
+        dlsym(RTLD_NEXT, "wl_display_connect");
+      void (*set_max)(struct wl_display *, size_t) =
+        dlsym(RTLD_DEFAULT, "wl_display_set_max_buffer_size");
+      struct wl_display *display = connect(name);
+      if (display && set_max) set_max(display, 16 << 20);
+      return display;
+    }
+    EOF
+  '';
   ghosttyPackage =
     if pkgs.stdenv.hostPlatform.isLinux
     then
@@ -67,13 +93,14 @@
         nativeBuildInputs = [pkgs.makeWrapper];
         postBuild = ''
           # Native Wayland. GDK_BACKEND=x11 used to dodge GTK exiting on EAGAIN
-          # during Kitty image floods (fixed since libwayland 1.23 lets GTK grow
-          # its buffer), but under Xwayland Ghostty deadlocked silently when a
-          # hidden window became visible again (workspace switch, alt-tab);
-          # see ghostty-org/ghostty discussion 12411.
+          # during Kitty image floods, but under Xwayland Ghostty deadlocked
+          # silently when a hidden window became visible again (workspace
+          # switch, alt-tab); see ghostty-org/ghostty discussion 12411. The
+          # preload shim above handles the EAGAIN exit instead.
           wrapProgram "$out/bin/ghostty" \
             --run ${lib.escapeShellArg saveEnvironment} \
             --set GHOSTTY_RESTORE_ENVIRONMENT 1 \
+            --prefix LD_PRELOAD : ${waylandBufferShim}/lib/libghostty-wayland-buffer.so \
             --set G_RESOURCE_OVERLAYS /org/gtk/libgdk/cursor=${gtkCursors} \
             --run 'if [[ ! -e /etc/NIXOS ]]; then exec ${lib.getExe nixGLMesa} ${lib.getExe pkgs.ghostty} "$@"; fi'
 

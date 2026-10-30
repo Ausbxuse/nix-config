@@ -19,7 +19,11 @@
         editor = ["nvim.desktop"];
         pdfviewer = ["sioyek.desktop" "org.pwmt.zathura.desktop"];
         mediaplayer = ["mpv.desktop"];
-        office = ["libreoffice-writer.desktop"];
+        # nixpkgs' LibreOffice installs writer/calc/impress.desktop; a missing
+        # ID makes xdg-open fall through to any other handler, such as Calibre.
+        writer = ["writer.desktop"];
+        calc = ["calc.desktop"];
+        impress = ["impress.desktop"];
       in {
         "application/json" = browser;
         "application/pdf" = pdfviewer;
@@ -70,15 +74,15 @@
         "video/3gpp2" = mediaplayer;
         "video/x-flv" = mediaplayer;
         "video/mp2t" = mediaplayer;
-        "application/msword" = office; # .doc
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = office; # .docx
-        "application/vnd.ms-excel" = office; # .xls
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = office; # .xlsx
-        "application/vnd.ms-powerpoint" = office; # .ppt
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation" = office; # .pptx
-        "application/vnd.oasis.opendocument.text" = office; # .odt
-        "application/vnd.oasis.opendocument.spreadsheet" = office; # .ods
-        "application/vnd.oasis.opendocument.presentation" = office; # .odp
+        "application/msword" = writer; # .doc
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = writer; # .docx
+        "application/vnd.ms-excel" = calc; # .xls
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = calc; # .xlsx
+        "application/vnd.ms-powerpoint" = impress; # .ppt
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" = impress; # .pptx
+        "application/vnd.oasis.opendocument.text" = writer; # .odt
+        "application/vnd.oasis.opendocument.spreadsheet" = calc; # .ods
+        "application/vnd.oasis.opendocument.presentation" = impress; # .odp
       };
 
       associations.added = let

@@ -72,38 +72,40 @@ in {
       log = {
         enabled = false;
       };
+      # Yazi expands %s (selected files) and %s1 (first file); $@ and $1 are
+      # no longer substituted and reach the command empty.
       opener = {
         edit = [
           {
-            run = ''nvim "$@"'';
+            run = "nvim %s";
             block = true;
             for = "unix";
           }
         ];
         image = [
           {
-            run = ''xdg-open "$1"'';
+            run = "xdg-open %s1";
             block = true;
             for = "unix";
           }
         ];
         open = [
           {
-            run = ''xdg-open "$1"'';
+            run = "xdg-open %s1";
             orphan = true;
             for = "unix";
           }
         ];
         video = [
           {
-            run = ''xdg-open "$1"'';
+            run = "xdg-open %s1";
             block = true;
             for = "unix";
           }
         ];
         pdf = [
           {
-            run = ''zathura "$@"'';
+            run = "zathura %s";
             orphan = true;
             for = "unix";
           }
