@@ -28,3 +28,10 @@ Each brief must be self-contained: context, exact paths, constraints,
 verification steps, and the deliverable format. Fable reviews results, owns
 decisions, plan files, and anything safety- or contract-sensitive. Small
 one-shot lookups stay direct rather than spawning an agent.
+
+## Artifacts: serve on the tailnet, not claude.ai
+
+Pages, mockups and A/B tests go out from the machine I'm on, over the tailnet
+(`http://100.64.0.x:<port>/…`, bound to that machine's tailnet address only),
+not through the Artifact tool or any claude.ai link. Use a free port, say the
+full URL, and stop the server by PID when it's no longer needed.
