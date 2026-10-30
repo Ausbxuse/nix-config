@@ -85,6 +85,24 @@ class TranscriptTests(unittest.TestCase):
         path.write_text(json.dumps(meta)+'\n'+json.dumps(record)+'\n')
         self.assertEqual(self.reader.read(path, True)[1][0]['text'], original)
 
+    def test_claude_message_taken_in_mid_turn_is_a_user_message(self):
+        root = self.root/'claude'
+        root.mkdir()
+        path = root/'session.jsonl'
+        records = [
+            {'type':'user','uuid':'a','cwd':'/project','message':{'role':'user','content':'Fix the plot.'}},
+            {'type':'queue-operation','operation':'enqueue','content':'Also the legend.'},
+            {'type':'assistant','uuid':'b','cwd':'/project','message':{'role':'assistant','stop_reason':'tool_use','content':[{'type':'text','text':'Looking.'}]}},
+            {'type':'attachment','uuid':'c','cwd':'/project','timestamp':'2026-10-30T07:51:40.348Z',
+             'attachment':{'type':'queued_command','prompt':'Also the legend.','commandMode':'prompt'}},
+            {'type':'attachment','uuid':'d','cwd':'/project','attachment':{'type':'queued_command','prompt':'done','commandMode':'task-notification'}},
+            {'type':'attachment','uuid':'e','cwd':'/project','isSidechain':True,'attachment':{'type':'queued_command','prompt':'Not mine.'}},
+        ]
+        path.write_text('\n'.join(map(json.dumps, records))+'\n')
+        messages = Transcripts(self.root, root).read_claude(path, True)[1]
+        self.assertEqual([(m['role'], m['text']) for m in messages],
+                         [('user', 'Fix the plot.'), ('assistant', 'Looking.'), ('user', 'Also the legend.')])
+
     def test_claude_runtime_notice_does_not_leak_or_change_history_identity(self):
         root = self.root/'claude'
         root.mkdir()

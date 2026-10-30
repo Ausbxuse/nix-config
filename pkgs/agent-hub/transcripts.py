@@ -410,6 +410,12 @@ class Transcripts:
                     'text': body, 'role': payload['role'], 'phase': payload.get('phase') or ('commentary' if payload.get('channel') == 'commentary' else ''), 'created': record.get('timestamp', ''),
                     'fork': {'thread': state['session'], 'turn': state['turn']} if state['session'] and state['turn'] and payload['role'] == 'user' else None}
         else:
+            # A message sent while Claude works is taken in mid-turn and logged as a queued
+            # command, not as a user record; it is still what the user said.
+            queued = record.get('attachment') if record.get('type') == 'attachment' else None
+            if (isinstance(queued, dict) and queued.get('type') == 'queued_command' and queued.get('commandMode', 'prompt') == 'prompt'
+                    and isinstance(queued.get('prompt'), (str, list))):
+                record = {**record, 'type': 'user', 'message': {'role': 'user', 'content': queued['prompt']}}
             if record.get('type') not in ('user', 'assistant') or record.get('isSidechain'):
                 return
             payload = record.get('message', {})
