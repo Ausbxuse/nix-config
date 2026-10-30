@@ -5,6 +5,7 @@
   pkgs,
   lib,
   hostname,
+  hostDefs,
   ...
 }: {
   imports = [
@@ -29,8 +30,21 @@
     openssh = {
       enable = true;
       # settings.PasswordAuthentication = true;
+      # Let a new login replace the clipboard socket a dropped one left behind.
+      settings.StreamLocalBindUnlink = true;
     };
   };
+
+  # Hand this desktop's clipboard to our own hosts (see modules/home/ssh-clipboard)
+  # so images paste into Claude Code there. Only NixOS hosts this repo manages:
+  # root on any host that receives the socket can read the clipboard, so
+  # machines administered by others (gpu-004) and bare tailnet IPs are excluded.
+  programs.ssh.extraConfig = let
+    ownHosts = lib.attrNames (lib.filterAttrs (_: def: def.nixos.enable or false) hostDefs);
+  in ''
+    Host ${lib.concatStringsSep " " ownHosts}
+      RemoteForward /run/user/%i/ssh-clipboard.sock /run/user/%i/ssh-clipboard-serve.sock
+  '';
 
   environment.localBinInPath = true;
   environment.systemPackages = with pkgs; [

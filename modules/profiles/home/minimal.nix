@@ -15,6 +15,7 @@
     ../../home/nvim
     ../../home/herdr
     ../../home/tmux
+    ../../home/ssh-clipboard
   ];
 
   # The unit only starts on hosts with a private node.json configuration.
