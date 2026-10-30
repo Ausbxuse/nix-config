@@ -31,6 +31,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import screen_reader
 import bridge
 import terminal_queue
 import coordination
@@ -606,6 +607,8 @@ class Hub:
         value = {"text": text, "fingerprint": bridge.fingerprint(text), "history": history, "observation": observation, **original,
                  **({'queue':queue} if queue is not None else {}), **({'approvals':approvals} if approvals is not None else {})}
         value['facts'] = self.task_facts.build(agent, value)
+        # The screen read for people: its question, and the conversation when no log could be.
+        value['screen'] = screen_reader.read(text, with_conversation=not original.get('messages'))
         return value
 
     def job(self, job_id, wait=False):

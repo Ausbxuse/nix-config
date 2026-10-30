@@ -40,6 +40,7 @@
       ./codex_account.py
       ./federation.py
       ./transcripts.py
+      ./screen_reader.py
       ./message_content.py
       ./claude_sessions.py
       ./claude_models.py
