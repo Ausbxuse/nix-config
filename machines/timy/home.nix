@@ -17,19 +17,20 @@
     set -g status-right-length 120
   '';
 
-  xdg.configFile."tmux/theme-dark.conf".source = lib.mkForce (
-    pkgs.writeText "tmux-theme-dark-timy.conf" (
-      builtins.readFile ../../modules/home/tmux/theme-dark.conf
-      + "\nset -g status-right '#[fg=#4fc1ff,bg=default,bold]#{?window_zoomed_flag,+, }#[fg=#b4befe,nobold] #(duo status)#(cpu) #[fg=#b4befe]#(memory) #[bg=default]#(battery) #[fg=#daeafa,nobold]%H:%M'\n"
-    )
-  );
-
-  xdg.configFile."tmux/theme-light.conf".source = lib.mkForce (
-    pkgs.writeText "tmux-theme-light-timy.conf" (
-      builtins.readFile ../../modules/home/tmux/theme-light.conf
-      + "\nset -g status-right \"#[fg=#4c4f69,bg=default,bold]#{?window_zoomed_flag,+, }#[fg=#1487d6] #(duo status)#(cpu) #[fg=#1487d6]#(memory) #[bg=default]#(battery) #[fg=#1f232e,nobold]%H:%M\"\n"
-    )
-  );
+  # Prefix the shared status line with the Duo screen mode instead of
+  # replacing it, so timy keeps the shared segments as they change.
+  xdg.configFile = let
+    withDuo = theme:
+      pkgs.writeText "tmux-theme-${theme}-timy.conf" (
+        builtins.replaceStrings
+        ["#(~/.local/bin/scripts/statusbar/cpu)"]
+        ["#(~/.local/bin/duo status 2>/dev/null)#(~/.local/bin/scripts/statusbar/cpu)"]
+        (builtins.readFile ../../modules/home/tmux/theme-${theme}.conf)
+      );
+  in {
+    "tmux/theme-dark.conf".source = lib.mkForce (withDuo "dark");
+    "tmux/theme-light.conf".source = lib.mkForce (withDuo "light");
+  };
 
   # nixpkgs.config.allowUnfree = true;
 
