@@ -178,7 +178,14 @@ in {
       + "<{'type': <'luminosity'>, 'id': <'effect_panel_light_tone'>, 'params': <{'contrast': <0.3>, 'contrast_center': <1.0>, 'saturation_multiplicator': <0.6>}>}>]>}"
       + "}";
   in ''
-    run ${pkgs.dconf}/bin/dconf write /org/gnome/shell/extensions/blur-my-shell/pipelines ${lib.escapeShellArg pipelines}
+    # At boot (before login) there is no session bus; start a private one
+    # like home-manager's own dconfSettings step does.
+    if [[ -v DBUS_SESSION_BUS_ADDRESS ]]; then
+      run ${pkgs.dconf}/bin/dconf write /org/gnome/shell/extensions/blur-my-shell/pipelines ${lib.escapeShellArg pipelines}
+    else
+      run ${pkgs.dbus}/bin/dbus-run-session --dbus-daemon=${pkgs.dbus}/bin/dbus-daemon \
+        ${pkgs.dconf}/bin/dconf write /org/gnome/shell/extensions/blur-my-shell/pipelines ${lib.escapeShellArg pipelines}
+    fi
   '');
 
   systemd.user.services.gnome-monitor-profile = {
