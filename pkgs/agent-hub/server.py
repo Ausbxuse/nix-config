@@ -817,6 +817,10 @@ class Hub:
                                 raise bridge.BridgeError('Finish this agent’s terminal draft or menu before sending images.')
                             bridge.send(config, current, message)
                             delivery = 'sent'
+                        elif current.get('runtime') == 'claude':
+                            # Mid-turn: Claude Code holds what's typed into its box and takes it
+                            # (and the pictures it names) when it can, as with any queued message.
+                            delivery = bridge.queue(config, current, message)
                         else:
                             raise bridge.BridgeError('This agent does not support image input.')
                     elif kind == 'queue':
