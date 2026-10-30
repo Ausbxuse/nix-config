@@ -401,11 +401,13 @@ class RoutingTests(unittest.TestCase):
     def test_message_is_stdin_not_shell_code(self):
         expected = bridge.parse_panes(row(), self.local)[0]
         message = "literal `touch /tmp/no` and $(do-not-run)\nnext line"
-        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=["› Ask Codex to do anything", ""]) as run:
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=["› Ask Codex to do anything", "", ""]) as run, \
+                patch.object(bridge.time, "sleep"):
             bridge.send(self.local, expected, message)
-            args, kwargs = run.call_args
+            args, kwargs = run.call_args_list[-2]
             self.assertNotIn(message, args[1])
             self.assertEqual(kwargs["stdin"], message)
+            self.assertEqual(run.call_args.args[1], ["send-keys", "-t", expected["pane"], "Enter"])
 
     def test_live_status_ignores_blank_padding_and_uses_cli_timer(self):
         agent = bridge.parse_panes(row(state="done"), self.local)[0]

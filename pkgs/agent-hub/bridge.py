@@ -484,8 +484,14 @@ def queue(connection, agent, message):
 def paste(connection, current, message, key='Enter'):
     buffer = "hub-" + uuid.uuid4().hex[:12]
     run(connection, ["load-buffer", "-b", buffer, "-", ";", "paste-buffer", "-p", "-d",
-                     "-b", buffer, "-t", current["pane"], ";", "send-keys", "-t",
-                     current["pane"], key], stdin=message)
+                     "-b", buffer, "-t", current["pane"]], stdin=message)
+    # Claude Code folds a long paste into a "[Pasted text #1 +3 lines]" chip, and an Enter that
+    # arrives while it does is lost: the message would sit in the box unsent.
+    time.sleep(PASTE_SETTLE)
+    run(connection, ["send-keys", "-t", current["pane"], key])
+
+
+PASTE_SETTLE = .3
 
 
 def retry_capacity(connection, agent):

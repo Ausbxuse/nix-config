@@ -30,9 +30,10 @@ class QueueTests(unittest.TestCase):
         instruction = 'Compare mean and quantile.\nKeep both checkpoints.'
         with patch.object(bridge, 'verify_agent', return_value=self.agent), patch.object(bridge, 'run', return_value=self.screen) as run:
             self.assertEqual(bridge.queue(self.connection, self.agent, instruction), 'queued')
-            self.assertEqual(run.call_args.args[1][-4:], ['send-keys', '-t', '%1', 'Tab'])
-            self.assertEqual(run.call_args.kwargs['stdin'], instruction)
-            self.assertEqual(run.call_count, 2)
+            # Pasted, then the key on its own once the paste has settled.
+            self.assertEqual(run.call_args.args[1], ['send-keys', '-t', '%1', 'Tab'])
+            self.assertEqual(run.call_args_list[-2].kwargs['stdin'], instruction)
+            self.assertEqual(run.call_count, 3)
 
     def test_idle_codex_submits_with_the_same_noninterrupting_key(self):
         with patch.object(bridge, 'verify_agent', return_value=self.agent), patch.object(bridge, 'run', return_value='Done\n›\n') as run:
