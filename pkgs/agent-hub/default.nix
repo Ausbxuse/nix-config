@@ -21,7 +21,9 @@
       -lwhisper -lggml -lggml-base -o "$out/bin/agent-hub-whisper"
   '';
   kokoro = pkgs.python3Packages.callPackage ./kokoro.nix {};
-  python = pkgs.python3.withPackages (pythonPackages: [kokoro pythonPackages.websocket-client pythonPackages.pillow]);
+  # misaki (with spaCy's small English model) turns words into sounds and stresses for Kokoro.
+  python = pkgs.python3.withPackages (pythonPackages: [kokoro pythonPackages.websocket-client pythonPackages.pillow
+    pythonPackages.misaki pythonPackages.spacy pythonPackages.spacy-models.en_core_web_sm pythonPackages.num2words]);
   voiceModel = pkgs.fetchurl {
     url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx";
     sha256 = "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5";

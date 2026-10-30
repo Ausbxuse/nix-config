@@ -7,6 +7,7 @@ import io
 import importlib.util
 import math
 import os
+import types
 from pathlib import Path
 import re
 import select
@@ -141,6 +142,8 @@ class LocalSpeech:
         self.voice_available = importlib.util.find_spec('kokoro_onnx') is not None
         self.voice_lock = SpeechLane('tts')
         self.voice = None
+        # Kokoro's own word-to-sound step (misaki), once loaded; False when it isn't installed.
+        self.g2p = None
         self.audio = AudioCache()
 
     def status(self):
@@ -173,6 +176,25 @@ class LocalSpeech:
                                             providers=['CPUExecutionProvider']), str(self.voice_voices))
         return self.voice
 
+    def _get_g2p(self):
+        """misaki, which Kokoro was trained with: it stresses words and phrases the way a person
+        would, where eSpeak's guesses often fall flat. None: Kokoro reads the text with eSpeak."""
+        if self.g2p is None:
+            # misaki's English imports a neural fallback (transformers, torch) never used here;
+            # stand-ins during the import keep gigabytes it wouldn't run out of the closure.
+            added = [name for name in ('transformers', 'torch') if name not in sys.modules and importlib.util.find_spec(name) is None]
+            for name in added:
+                sys.modules[name] = types.SimpleNamespace(BartForConditionalGeneration=None)
+            try:
+                from misaki import en, espeak
+                self.g2p = en.G2P(trf=False, british=False, fallback=espeak.EspeakFallback(british=False))
+            except (ImportError, OSError):
+                self.g2p = False
+            finally:
+                for name in added:
+                    sys.modules.pop(name, None)
+        return self.g2p or None
+
     def warmup(self):
         """Start loading while the caller speaks, without delaying capture."""
         def load(lock, function):
@@ -185,7 +207,7 @@ class LocalSpeech:
         status = self.status()
         for available, lock, function in [
             (status['available'], self.lock, lambda: self._get_worker().start()),
-            (status['playback']['available'], self.voice_lock, self._get_voice),
+            (status['playback']['available'], self.voice_lock, lambda: (self._get_voice(), self._get_g2p())),
         ]:
             if available and not self.closed and lock.acquire(blocking=False):
                 threading.Thread(target=load, args=(lock, function), daemon=True).start()
@@ -223,8 +245,17 @@ class LocalSpeech:
                 return cached
             import numpy as np
             voice = self._get_voice()
-            samples, rate = voice.create(text, voice=self.voice_speaker, speed=1.02, lang='en-us',
-                                         sentence_pause=.2, clause_pause=.08)
+            g2p = self._get_g2p()
+            try:
+                phonemes = g2p(text)[0] if g2p else ''
+            except Exception:  # Odd text misaki can't read: eSpeak still can.
+                phonemes = ''
+            if phonemes:
+                samples, rate = voice.create(phonemes, voice=self.voice_speaker, speed=1.02, is_phonemes=True,
+                                             sentence_pause=.2, clause_pause=.08)
+            else:
+                samples, rate = voice.create(text, voice=self.voice_speaker, speed=1.02, lang='en-us',
+                                             sentence_pause=.2, clause_pause=.08)
             # Match the previous rounding/clipping in one vectorized operation.
             pcm = np.clip(np.rint(np.asarray(samples, dtype=np.float64) * 32767), -32768, 32767).astype('<i2')
             output = io.BytesIO()
