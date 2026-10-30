@@ -120,7 +120,13 @@ in {
     };
 
     # Keep tailnet access available after reboot without a temporary Nix shell.
-    services.tailscale.enable = true;
+    services.tailscale = {
+      enable = true;
+      openFirewall = true;
+      # Self-hosted headscale. Applied by tailscaled-autoconnect once an
+      # authKeyFile is set; until then run `tailscale up` with this flag once.
+      extraUpFlags = ["--login-server=https://vpn.zhenyuzhao.com"];
+    };
 
     # Unattended unlock: systemd-cryptsetup tries the enrolled TPM2 token first
     # and falls back to the passphrase prompt (or initrd SSH) when it refuses.
@@ -149,6 +155,18 @@ in {
       };
     };
     boot.initrd.systemd.users.root.shell = "/bin/systemd-tty-ask-password-agent";
+
+    # The bootloader install copies this key into the initrd secrets and fails
+    # if it is missing. Activation also runs inside nixos-install before the
+    # bootloader, so new hosts get one; an existing host moving onto this
+    # module via `boot` still needs the one-time ssh-keygen above.
+    system.activationScripts.initrdSshHostKey.text = ''
+      if [ ! -f /etc/secrets/initrd/ssh_host_ed25519_key ]; then
+        install -d -m 0700 /etc/secrets/initrd
+        ${pkgs.openssh}/bin/ssh-keygen -q -t ed25519 -N "" -C "${hostname}-initrd" \
+          -f /etc/secrets/initrd/ssh_host_ed25519_key
+      fi
+    '';
 
     # Fans and temperatures (hwmon, thermal_zone) plus the mic textfile metrics,
     # reachable only over the tailnet: curl http://<host>:9100/metrics

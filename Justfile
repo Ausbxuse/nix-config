@@ -39,10 +39,29 @@ sys:
 		printf 'Using `nh os boot` instead of `nh os switch` to avoid live driver/userspace mismatch.\n'
 	fi
 
+	# Mirror NixOS's switchInhibitors pre-switch check, which refuses `switch`
+	# when critical components (e.g. the dbus implementation) change.
+	changed_inhibitors="$(
+		nix eval --raw --impure .#nixosConfigurations."$(hostname)".config.system.switch.inhibitors \
+			"${extra_args[@]}" {{nix-interactive-options}} --apply '
+			new: let
+				f = /run/current-system/switch-inhibitors;
+				cur = if builtins.pathExists f then builtins.fromJSON (builtins.readFile f) else {};
+				changed = builtins.filter (k: new ? ${k} && cur.${k} != new.${k}) (builtins.attrNames cur);
+			in builtins.concatStringsSep "\n" (map (k: "${k}: ${builtins.toJSON cur.${k}} -> ${builtins.toJSON new.${k}}") changed)
+			' 2>/dev/null || true
+	)"
+
+	if [ -n "$changed_inhibitors" ]; then
+		mode=boot
+		printf 'Critical components changed; a live switch would be refused:\n%s\n' "$changed_inhibitors"
+		printf 'Using `nh os boot` instead of `nh os switch`.\n'
+	fi
+
 	nh os "$mode" --bypass-root-check --ask --diff always --fallback --hostname "$(hostname)" . -- "${extra_args[@]}" {{nix-interactive-options}}
 
 	if [ "$mode" = boot ]; then
-		printf '\nBoot generation installed. Reboot to load NVIDIA %s.\n' "$target_nvidia"
+		printf '\nBoot generation installed. Reboot to activate it.\n'
 	fi
 
 # Optionally select a configured host when activating from a differently named machine.
