@@ -83,13 +83,27 @@
     }
     EOF
   '';
+  # Ghostty swallows a left click that lands while the terminal lacks focus
+  # (meant for switching between Ghostty's own splits), so clicking a tmux
+  # status-bar window from another app took two clicks. Splits are tmux's
+  # job here; forward that first click.
+  ghostty = pkgs.ghostty.overrideAttrs (old: {
+    postPatch =
+      (old.postPatch or "")
+      + ''
+        substituteInPlace src/apprt/gtk/class/surface.zig \
+          --replace-fail \
+            'if (!had_focus and button == .left) {' \
+            'if (false and !had_focus and button == .left) {'
+      '';
+  });
   ghosttyPackage =
     if pkgs.stdenv.hostPlatform.isLinux
     then
       pkgs.symlinkJoin {
-        name = "ghostty-wrapped-${pkgs.ghostty.version}";
-        paths = [pkgs.ghostty];
-        inherit (pkgs.ghostty) meta;
+        name = "ghostty-wrapped-${ghostty.version}";
+        paths = [ghostty];
+        inherit (ghostty) meta;
         nativeBuildInputs = [pkgs.makeWrapper];
         postBuild = ''
           # Native Wayland. GDK_BACKEND=x11 used to dodge GTK exiting on EAGAIN
@@ -102,7 +116,7 @@
             --set GHOSTTY_RESTORE_ENVIRONMENT 1 \
             --prefix LD_PRELOAD : ${waylandBufferShim}/lib/libghostty-wayland-buffer.so \
             --set G_RESOURCE_OVERLAYS /org/gtk/libgdk/cursor=${gtkCursors} \
-            --run 'if [[ ! -e /etc/NIXOS ]]; then exec ${lib.getExe nixGLMesa} ${lib.getExe pkgs.ghostty} "$@"; fi'
+            --run 'if [[ ! -e /etc/NIXOS ]]; then exec ${lib.getExe nixGLMesa} ${lib.getExe ghostty} "$@"; fi'
 
           # A standalone home profile can run on NixOS or another distro.
           # Select graphics support at launch, and route desktop/D-Bus/systemd
@@ -112,13 +126,13 @@
                       "$out"/share/systemd/user/*.service; do
             [[ -e "$file" ]] || continue
             substitute "$file" "$file.new" \
-              --replace-quiet '${pkgs.ghostty}' "$out" \
+              --replace-quiet '${ghostty}' "$out" \
               --replace-quiet 'Exec=ghostty' "Exec=$out/bin/ghostty"
             mv "$file.new" "$file"
           done
         '';
       }
-    else pkgs.ghostty;
+    else ghostty;
 in {
   # Frosted-glass backgrounds baked from the desktop wallpapers
   # (frost-background.py): blurred like an iOS material and toned per theme,
