@@ -92,6 +92,76 @@ def assistant_evidence(variants, dialogue):
     return best
 
 
+# The input box's own status line, run together with whatever is in the box (normalized).
+EDITOR_STATUS = re.compile(r'(?:weekly|daily|5h)\d+left|\d+contextleft|forshortcuts|foragents|shifttabtocycle|automodeon|accepteditson|bypasspermissionson|planmodeon')
+
+
+def within(path, folder):
+    """[path] is inside [folder] (not the folder itself)."""
+    return bool(path and folder) and path.startswith(folder.rstrip('/') + '/')
+
+
+def editor_draft(raw):
+    """What's typed in the input box at the bottom of the raw screen (normalized), if anything.
+
+    The box is the last prompt row (› or ❯) with no reply marker below it and its status line
+    ("weekly 90% left", "? for shortcuts", "auto mode on") under it.
+    """
+    lines = raw.splitlines()
+    rows = [i for i, line in enumerate(lines) if re.match(r'^[›❯](?:\s|$)', line)]
+    if not rows or any(re.match(r'^[•●■](?:\s|$)', line) for line in lines[rows[-1] + 1:]):
+        return ''
+    # It's the box only with the box's status line under it; a just-sent message has none.
+    if not any(EDITOR_STATUS.search(normalized(line)) for line in lines[rows[-1] + 1:]):
+        return ''
+    text = [lines[rows[-1]][1:].strip()]
+    for line in lines[rows[-1] + 1:]:
+        if not line.startswith('  ') or not line.strip() or EDITOR_STATUS.search(normalized(line)):
+            break
+        text.append(line.strip())
+    draft = normalized(' '.join(text))
+    return '' if draft in {normalized(p) for p in CODEX_PLACEHOLDERS} else draft
+
+
+def without_draft(dialogue, draft=''):
+    """The input box at the bottom is not a message, even with something typed in it.
+
+    While someone types in the terminal, the box reads as a newer user turn; left in, it would
+    look like a session the log hasn't caught up with and drop the binding for as long as the
+    draft is there.
+    """
+    if dialogue and dialogue[-1][0] == 'user':
+        text = dialogue[-1][1]
+        if EDITOR_STATUS.search(text) or (draft and (text.startswith(draft[:40]) or draft.startswith(text[:40]))):
+            return dialogue[:-1]
+    return dialogue
+
+
+def last_reply_evidence(messages, dialogue, cwd):
+    """An idle pane often shows only its short last answer under a run of tool rows.
+
+    That answer identifies its record when it is the newest visible reply, equals the session's
+    last reply word for word (60+ characters), and only tool rows separate it from the prompt
+    above it: a quoted copy, or one after an unrelated reply, is not enough.
+    """
+    # The empty input box (its placeholder, and the status line under it) isn't a prompt.
+    empty = tuple(normalized(p) for p in CODEX_PLACEHOLDERS)
+    shown = list(dialogue)
+    if shown and shown[-1][0] == 'user' and shown[-1][1].startswith(empty):
+        shown.pop()
+    last = next((i for i in range(len(shown) - 1, -1, -1) if shown[i][0] == 'assistant'), None)
+    if last is None or any(role not in ('tool',) for role, *_ in shown[last + 1:]):
+        return None
+    text, start = shown[last][1], shown[last][3]
+    prompt = next((i for i in range(last - 1, -1, -1) if shown[i][0] == 'user'), -1)
+    if any(role != 'tool' for role, *_ in shown[prompt + 1:last]):
+        return None
+    index = next((i for i in range(len(messages) - 1, -1, -1) if messages[i].get('role') == 'assistant'), None)
+    if index is None or len(text) < 60 or text not in visible_variants(messages[index]['text'], cwd):
+        return None
+    return 160, start, start + len(text), index
+
+
 def short_dialogue_evidence(messages, dialogue, cwd):
     """Combine consecutive, exact short messages in their native order.
 
@@ -155,6 +225,19 @@ def claude_display(record, body):
     if record.get("isMeta"):
         return None
     text = body.strip()
+    # /compact and auto-compaction: the CLI's own summary, not something the user wrote.
+    if record.get("isCompactSummary") or text.startswith("This session is being continued from a previous conversation"):
+        return {"role": "tool", "kind": "compaction", "text": "Earlier conversation summarized to free up context"}
+    if re.fullmatch(r"\[Request interrupted by user[^\]]*\]", text):
+        return {"role": "tool", "kind": "interrupt", "text": "Interrupted"}
+    # `!cmd` typed into Claude Code: the command, then what it printed.
+    shell = re.fullmatch(r"<bash-input>([\s\S]*?)</bash-input>", text)
+    if shell:
+        return {"role": "tool", "kind": "command", "text": "! " + shell[1].strip()}
+    if text.startswith("<bash-stdout>") or text.startswith("<bash-stderr>"):
+        parts = re.findall(r"<bash-(?:stdout|stderr)>([\s\S]*?)</bash-(?:stdout|stderr)>", text)
+        out = "\n".join(p.strip() for p in parts if p.strip())
+        return {"role": "tool", "kind": "command-output", "text": out} if out else None
     if re.fullmatch(r"<local-command-caveat>[\s\S]*</local-command-caveat>", text):
         return None
     if text.startswith("<command-name>"):
@@ -211,6 +294,10 @@ class Transcripts:
         self.cache_bytes = 0
         self.metrics = dict(bytes_read=0, records=0, resets=0, cache_hits=0)
         self.paths = []
+        # Each rollout's working directory (its first record never changes), and the rollouts
+        # per directory newest first, so an idle agent's session is found however old it is.
+        self.cwds = {}
+        self.by_cwd = {}
         self.matched_paths = OrderedDict()
         self.scanned = 0
 
@@ -226,9 +313,31 @@ class Transcripts:
                         paths.append((path.stat().st_mtime_ns, path))
                 except OSError:
                     continue  # A session can rotate during discovery.
-            self.paths = [path for _, path in sorted(paths, reverse=True)[:50]]
+            ranked = sorted(paths, reverse=True)
+            self.paths = [path for _, path in ranked[:50]]
+            # Short supervisor runs fill the recent window quickly; an agent left idle for a
+            # few days falls out of it. Its directory still finds it (see for_cwd).
+            by_cwd = {}
+            for _, path in ranked:
+                key = str(path)
+                if key not in self.cwds:
+                    try:
+                        with open(path, 'rb') as f:
+                            head = f.read(65536)
+                        found = re.search(rb'"cwd":"((?:[^"\\]|\\.)*)"', head)
+                        self.cwds[key] = json.loads(b'"' + found.group(1) + b'"') if found else ''
+                    except (OSError, ValueError):
+                        continue
+                if self.cwds[key]:
+                    by_cwd.setdefault(self.cwds[key], []).append(path)
+            self.by_cwd = by_cwd
             self.scanned = time.monotonic()
         return self.paths
+
+    def for_cwd(self, cwd, limit=8):
+        """The newest Codex sessions started in [cwd], however long ago."""
+        self.candidates()
+        return self.by_cwd.get(cwd, [])[:limit] if cwd else []
 
     def read(self, path, history=False):
         return self._read_tail(Path(path), 'codex', history)
@@ -313,9 +422,16 @@ class Transcripts:
                 body = user_text('\n'.join(text for part in content if isinstance(part, dict) and
                                           part.get('type') == 'text' and isinstance(part.get('text'), str) and
                                           (text := user_text(part['text'])))) if isinstance(content, list) else user_text(body)
-            if record.get('cwd', '') != state['cwd']:
-                state['cwd'], state['messages'] = record.get('cwd', ''), []
-                state['lifecycle'] = {}
+            # A session's records follow its shell into subfolders (cd into a run directory and
+            # back); only an unrelated folder means another session. The session's folder is the
+            # outermost one seen.
+            cwd = record.get('cwd', '')
+            if cwd != state['cwd'] and not within(cwd, state['cwd']):
+                if state['cwd'] and within(state['cwd'], cwd):
+                    state['cwd'] = cwd
+                else:
+                    state['cwd'], state['messages'] = cwd, []
+                    state['lifecycle'] = {}
             display = claude_display(record, body) if body and payload['role'] == 'user' else {'role': 'assistant', 'text': body} if body else None
             claude_lifecycle(record, payload, body, display, state)
             if not body or len(body) > max_text or not display:
@@ -446,7 +562,7 @@ class Transcripts:
             with self.lock:
                 cwd, _ = self.read_claude(path, history)
                 lifecycle = dict(self.cache.get((path, 'claude', bool(history)), {}).get('view', {}).get('lifecycle', {}))
-            if cwd != identity['cwd'] or self.claude_sessions.binding(agent, connection) != identity:
+            if not (cwd == identity['cwd'] or within(cwd, identity['cwd'])) or self.claude_sessions.binding(agent, connection) != identity:
                 return terminal
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return terminal
@@ -467,7 +583,7 @@ class Transcripts:
             identity = self.claude_sessions.binding(agent, connection)
             if identity:
                 cwd, messages = self.read_claude(identity['path'], history)
-                if (cwd == identity['cwd'] or not cwd and not messages) and self.claude_sessions.binding(agent, connection) == identity:
+                if (cwd == identity['cwd'] or within(cwd, identity['cwd']) or not cwd and not messages) and self.claude_sessions.binding(agent, connection) == identity:
                     selected = messages[-(200 if history else 8):]
                     while sum(len(item['text']) for item in selected) > (500_000 if history else 150_000) and len(selected) > 1:
                         selected.pop(0)
@@ -475,11 +591,12 @@ class Transcripts:
                             'session_verified': True,
                             'history_note': 'Up to 200 messages from the last 16 MB of the active Claude session.' if history else '',
                             **({'archive_source': identity['path']} if binding else {})}
+        draft = editor_draft(capture)
         capture = terminal_content(capture)
         runtime = agent.get("runtime")
         if runtime not in ("codex", "claude") or len(capture) < 160:
             return {}
-        dialogue = visible_dialogue(capture)
+        dialogue = without_draft(visible_dialogue(capture), draft)
         prompt_records = [(body, clipped, start) for role, body, clipped, start in dialogue if role == 'user']
         matches = []
         with self.lock:
@@ -488,6 +605,7 @@ class Transcripts:
                 paths = sorted((self.claude_root / project).glob("*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)[:20]
             else:
                 paths = self.candidates()
+                paths = paths + [path for path in self.for_cwd(agent.get('cwd', '')) if path not in paths]
             # Long-lived sessions may have been created outside the recent date
             # window. Hints only add candidates; identity still requires a match.
             allowed = self.claude_root if runtime == "claude" else self.root
@@ -509,7 +627,7 @@ class Transcripts:
                     continue
                 if cwd != agent.get("cwd"):
                     continue
-                evidence = short_dialogue_evidence(messages, dialogue, cwd)
+                evidence = short_dialogue_evidence(messages, dialogue, cwd) or last_reply_evidence(messages, dialogue, cwd)
                 for index in range(len(messages) - 1, -1, -1):
                     role = messages[index].get("role")
                     if role not in ('assistant', 'user'):

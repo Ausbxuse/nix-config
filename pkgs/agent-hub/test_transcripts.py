@@ -7,9 +7,30 @@ import tempfile
 import unittest
 
 from transcripts import Transcripts, claude_display
+import transcripts
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_a_draft_in_the_input_box_is_not_a_message(self):
+        rows = transcripts.visible_dialogue('• Done with the build, all tests pass and the APK is published for phones.\n\n› half typed thought about the\n\n  GPT-6 max · ~/src · weekly 90% left\n')
+        self.assertEqual('assistant', transcripts.without_draft(rows)[-1][0])
+        sent_screen = '• Done with the build.\n\n› please also update the docs\n\n• Working (3s • esc to interrupt)\n'
+        sent = transcripts.visible_dialogue(sent_screen)
+        self.assertEqual(sent, transcripts.without_draft(sent, transcripts.editor_draft(sent_screen)))
+        typing = '• Done with the build, all tests pass.\n\n› half typed thought\n\n  GPT-6 max · ~/src · weekly 90% left\n'
+        self.assertEqual('halftypedthought', transcripts.editor_draft(typing))
+
+    def test_idle_pane_binds_by_its_whole_last_reply(self):
+        reply = 'Done on both hosts. Automatic reply summaries and recap cards are off. Original replies stay intact.'
+        messages = [{'role': 'user', 'text': 'only summarize when I ask'}, {'role': 'assistant', 'text': reply}]
+        idle = '› only summarize when I ask\n\n• Ran ls -la\n  └ total 0\n\n• ' + reply + '\n\n› Ask Codex to do anything\n'
+        self.assertIsNotNone(transcripts.last_reply_evidence(messages, transcripts.visible_dialogue(idle), '/tmp'))
+        # After an unrelated reply, or too short to tell, it proves nothing.
+        between = '› only summarize when I ask\n\n• Something else entirely, said in between.\n\n• ' + reply + '\n'
+        self.assertIsNone(transcripts.last_reply_evidence(messages, transcripts.visible_dialogue(between), '/tmp'))
+        short = [{'role': 'user', 'text': 'go'}, {'role': 'assistant', 'text': 'Done.'}]
+        self.assertIsNone(transcripts.last_reply_evidence(short, transcripts.visible_dialogue('› go\n\n• Done.\n'), '/tmp'))
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
@@ -471,6 +492,25 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual(len(old_prompt['messages']), 1)
 
 class ClaudeTranscriptTests(unittest.TestCase):
+    def test_history_survives_cd_into_subfolders(self):
+        # The agent's shell moves into a run folder and back; that's still its session.
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'session.jsonl'
+            records=[{'uuid':str(i),'type':'user' if i%2==0 else 'assistant','cwd':cwd,'message':{'role':'user' if i%2==0 else 'assistant','content':f'message {i}'}}
+                     for i,cwd in enumerate(['/project/runs/a','/project','/project/runs/a','/project','/project/runs/b','/project'])]
+            path.write_text('\n'.join(map(json.dumps,records))+'\n')
+            cwd,messages=Transcripts(root/'codex',root).read_claude(path)
+            self.assertEqual(cwd,'/project')
+            self.assertEqual(len(messages),6)
+
+    def test_unrelated_folder_still_starts_over(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'session.jsonl'
+            records=[{'uuid':str(i),'type':'user','cwd':cwd,'message':{'role':'user','content':f'message {i}'}} for i,cwd in enumerate(['/project','/other'])]
+            path.write_text('\n'.join(map(json.dumps,records))+'\n')
+            cwd,messages=Transcripts(root/'codex',root).read_claude(path)
+            self.assertEqual((cwd,len(messages)),('/other',1))
+
     def test_repeated_user_text_keeps_distinct_message_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);path=root/'session.jsonl'
@@ -608,6 +648,16 @@ class ClaudeDisplayTests(unittest.TestCase):
         task = self.display("<task-notification><task-id>12</task-id><summary>Evaluation complete.</summary></task-notification>")
         self.assertEqual(task["kind"], "task-update")
         self.assertEqual(task["text"], "Evaluation complete.")
+
+    def test_cli_events_are_not_user_messages(self):
+        summary = "This session is being continued from a previous conversation that ran out of context.\n\n<system-reminder>\n<tools-used-before-summary>Bash</tools-used-before-summary>"
+        self.assertEqual(self.display(summary, isCompactSummary=True)["kind"], "compaction")
+        self.assertEqual(self.display(summary)["kind"], "compaction")
+        self.assertEqual(self.display("[Request interrupted by user for tool use]"), {"role":"tool", "kind":"interrupt", "text":"Interrupted"})
+        self.assertEqual(self.display("<bash-input>git push</bash-input>"), {"role":"tool", "kind":"command", "text":"! git push"})
+        out = self.display("<bash-stdout>Everything up-to-date</bash-stdout><bash-stderr></bash-stderr>")
+        self.assertEqual(out, {"role":"tool", "kind":"command-output", "text":"Everything up-to-date"})
+        self.assertIsNone(self.display("<bash-stdout></bash-stdout><bash-stderr></bash-stderr>"))
 
     def test_user_code_and_quoted_tags_stay_intact(self):
         for text in ('Explain <local-command-caveat>example</local-command-caveat>', '```xml\n<local-command-caveat>example</local-command-caveat>\n```', '<custom>data</custom>'):

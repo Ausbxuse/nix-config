@@ -368,6 +368,22 @@ class RoutingTests(unittest.TestCase):
                     bridge.send(self.local, expected, "an instruction")
                 self.assertEqual(run.call_count, 1)
 
+    def test_choice_is_one_key_and_only_when_on_screen(self):
+        expected = bridge.parse_panes(row(), self.local)[0]
+        menu = "How long?\n\n❯ 1. Short\n  2. Long\n\nEnter to select · Esc to cancel"
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[menu, ""]) as run:
+            bridge.choose(self.local, expected, 2)
+            self.assertEqual(run.call_args[0][1][-1], "2")
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", return_value="● Done.\n› Ask Codex to do anything") as run:
+            with self.assertRaisesRegex(bridge.BridgeError, "no longer on its screen"):
+                bridge.choose(self.local, expected, 2)
+            self.assertEqual(run.call_count, 1)
+        with self.assertRaises(bridge.BridgeError):
+            bridge.choose(self.local, expected, "2; rm")
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=["  ❯ 1. Default\n    2. Sonnet\n  ↓ 3. Fable", ""]) as run:
+            bridge.choose(self.local, expected, 3)
+            self.assertEqual(run.call_args[0][1][-1], "3")
+
     def test_message_is_stdin_not_shell_code(self):
         expected = bridge.parse_panes(row(), self.local)[0]
         message = "literal `touch /tmp/no` and $(do-not-run)\nnext line"

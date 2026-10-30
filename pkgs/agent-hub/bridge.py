@@ -492,6 +492,23 @@ def rename(connection, agent, name):
                      "rename-window", "-t", current["window"], "--", name.strip()])
 
 
+CHOICE_ROW = r'(?m)^\s*(?:[│┃]\s*)?[❯›>↑↓]?\s*{}\.\s+\S'
+
+
+def choose(connection, agent, number):
+    """Picks numbered choice [number] in the menu the agent is waiting on, with that one key.
+
+    Claude Code's menus take the number key alone; Enter after it would carry on to whatever comes
+    next. The key is only sent while that choice is on its screen, so it never lands as typing.
+    """
+    if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= 9:
+        raise BridgeError("Choose an option from 1 to 9.")
+    current = verify_agent(connection, agent)
+    if not re.search(CHOICE_ROW.format(number), capture(connection, current["pane"], 0)):
+        raise BridgeError("That choice is no longer on its screen.")
+    run(connection, ["send-keys", "-t", current["pane"], str(number)])
+
+
 def interrupt(connection, agent):
     current = verify_agent(connection, agent)
     state, _ = classify(current, capture(connection, current["pane"], 0))
