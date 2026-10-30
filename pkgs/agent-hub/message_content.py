@@ -10,7 +10,14 @@ CONTEXT_OPEN = re.compile(r'<(codex_internal_context|environment_context|permiss
 AGENTS_HEADER = re.compile(r'# AGENTS\.md instructions for [^\r\n]+\r?\n\s*<INSTRUCTIONS>')
 
 
+# Claude Code wraps a paste (how the hub types a message in) as a whole in a numbered envelope.
+PASTED = re.compile(r'\s*<pasted_content id="([^"]*)">\r?\n?([\s\S]*?)\r?\n?</pasted_content id="\1">\s*')
+
+
 def user_text(text):
+    pasted = PASTED.fullmatch(text)
+    if pasted:
+        text = pasted[2]
     while True:
         # Four-space indentation is Markdown code, not a protocol envelope.
         candidate = re.sub(r'^(?:[ \t]*\r?\n)+', '', text)

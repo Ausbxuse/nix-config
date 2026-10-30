@@ -85,6 +85,19 @@ class TranscriptTests(unittest.TestCase):
         path.write_text(json.dumps(meta)+'\n'+json.dumps(record)+'\n')
         self.assertEqual(self.reader.read(path, True)[1][0]['text'], original)
 
+    def test_claude_pasted_message_reads_as_what_was_sent(self):
+        root = self.root/'claude'
+        root.mkdir()
+        path = root/'session.jsonl'
+        sent = 'Look at this.\n\nAttached images (open these files to view them):\n/state/images/a.jpg'
+        records = [{'type':'user','uuid':'a','cwd':'/project','message':{'role':'user',
+                    'content':'\n\n<pasted_content id="65a0">\n'+sent+'\n</pasted_content id="65a0">\n'}},
+                   {'type':'user','uuid':'b','cwd':'/project','message':{'role':'user',
+                    'content':'Quote: <pasted_content id="1">x</pasted_content id="2">'}}]
+        path.write_text('\n'.join(map(json.dumps, records))+'\n')
+        messages = Transcripts(self.root, root).read_claude(path, True)[1]
+        self.assertEqual([m['text'] for m in messages], [sent, 'Quote: <pasted_content id="1">x</pasted_content id="2">'])
+
     def test_claude_message_taken_in_mid_turn_is_a_user_message(self):
         root = self.root/'claude'
         root.mkdir()
