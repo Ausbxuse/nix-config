@@ -813,7 +813,7 @@ class Hub:
                                 delivery = bridge.queue(config, current, message)
                         elif current.get('runtime') == 'claude' and kind == 'send':
                             from claude_models import empty_editor
-                            if not empty_editor(current, bridge.capture(config, current['pane'], 0)):
+                            if not empty_editor(current, bridge.capture(config, current['pane'], 0), bridge.capture_terminal(config, current['pane'], 0)):
                                 raise bridge.BridgeError('Finish this agent’s terminal draft or menu before sending images.')
                             bridge.send(config, current, message)
                             delivery = 'sent'

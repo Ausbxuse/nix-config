@@ -38,15 +38,38 @@ def picker(screen):
     return {'rows':rows, 'selected':selected[0]['id'], 'effort':effort}
 
 
-def empty_editor(agent, screen):
+def empty_editor(agent, screen, styled=None):
+    """Nothing typed in Claude's input box and no menu open. [styled], the same screen with its
+    escapes (bridge.capture_terminal), lets the box count as empty while it shows a grey
+    suggestion (Try "…", or a guessed next prompt): that is drawn dim and goes when anything's typed."""
     try:
         lines = screen.splitlines();row = int(agent['cursor_y'])
         return (agent.get('in_mode') == '0' and int(agent['cursor_x']) == 2 and 0 < row < len(lines)-1 and
-                re.fullmatch(r'❯\s*', lines[row]) is not None and
+                (re.fullmatch(r'❯\s*', lines[row]) is not None or
+                 lines[row].startswith('❯') and styled is not None and only_dim(styled.splitlines()[row])) and
                 bridge.EDITOR_BORDER.fullmatch(lines[row-1]) is not None and
                 bridge.EDITOR_BORDER.fullmatch(lines[row+1]) is not None)
     except (KeyError, ValueError, IndexError):
         return False
+
+
+def only_dim(row):
+    """Everything after the prompt mark in this styled row is drawn dim (SGR 2): a suggestion."""
+    dim, mark = False, False
+    for escape, text in re.findall(r'\x1b\[([\d;]*)m|([^\x1b]+)', row):
+        if text:
+            for ch in text:
+                if not mark:
+                    mark = ch == '❯'
+                elif not ch.isspace() and not dim:
+                    return False
+            continue
+        for code in (escape or '0').split(';'):
+            if code == '2':
+                dim = True
+            elif code in ('0', '22', ''):
+                dim = False
+    return mark
 
 
 def effort_cache_confirmation(screen, effort):

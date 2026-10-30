@@ -191,6 +191,16 @@ class ClaudeModelTests(unittest.TestCase):
         self.assertFalse(empty_editor({**self.term.agent,'cursor_x':5},self.term.screen()))
         self.assertFalse(empty_editor({**self.term.agent,'in_mode':'1'},self.term.screen()))
 
+    def test_a_grey_suggestion_in_the_box_is_not_a_draft(self):
+        screen = self.term.screen()
+        row = screen.splitlines()[2]
+        suggested = screen.replace(row, '❯\xa0Try "refactor AgentHub.kt"')
+        styled = lambda rest: '\n'.join(l if i != 2 else '\x1b[39m❯\xa0' + rest for i, l in enumerate(suggested.splitlines()))
+        self.assertTrue(empty_editor(self.term.agent, suggested, styled('\x1b[2mTry "refactor AgentHub.kt"\x1b[0m')))
+        self.assertFalse(empty_editor(self.term.agent, suggested), 'without the styling it may be typed')
+        self.assertFalse(empty_editor(self.term.agent, suggested, styled('Try "refactor AgentHub.kt"')), 'typed text')
+        self.assertFalse(empty_editor(self.term.agent, suggested, styled('\x1b[2mTry\x1b[22m "refactor"')), 'partly typed')
+
 
 if __name__ == '__main__':
     unittest.main()

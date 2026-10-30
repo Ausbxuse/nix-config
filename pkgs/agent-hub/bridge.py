@@ -459,7 +459,7 @@ def queue(connection, agent, message):
         if state == 'waiting':
             raise BridgeError('This agent has an interactive decision. Resolve it in tmux first.')
         from claude_models import empty_editor
-        if not empty_editor(current, screen):
+        if not empty_editor(current, screen, capture_terminal(connection, current['pane'], 0)):
             raise BridgeError('This agent has a terminal draft or open menu. Finish it before sending.')
         paste(connection, current, message)
         return 'queued' if state == 'running' else 'sent'
