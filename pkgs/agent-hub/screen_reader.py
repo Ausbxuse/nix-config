@@ -24,8 +24,8 @@ EMPTY_PROMPT = re.compile(r'^[›❯]\s*$')
 SHELL_PATH = re.compile(r'^\S?\s*(?:~|/)[\w./~-]*(?:\s+on\s+.*)?$')
 BOX = re.compile(r'^\s*[│┃┌┏╭╰└├┤┬┴┼─━╮╯]')
 OPTION = re.compile(r'^[›❯>↑↓]?\s*(\d+)\.\s+(.+)$')
-HINT = re.compile(r'(?:enter to (?:select|confirm)|esc to (?:cancel|interrupt)|tab/arrow keys|↑/↓|to navigate)', re.I)
-RULE = re.compile(r'^[─━╌╍-]{4,}$')
+HINT = re.compile(r'(?:enter to (?:select|confirm|set)|esc to (?:cancel|interrupt)|q to cancel|tab/arrow keys|↑/↓|to navigate|to adjust)', re.I)
+RULE = re.compile(r'^[─━╌╍═▔▁-]{4,}$')
 PLAIN = re.compile(
     r'^(?:direnv:.*|[›❯>]\s*(?:Ask Codex to do anything|codex|claude)?\s*|>_ OpenAI Codex.*|(?:GPT-|gpt-).+ · .+(?:left|context).*|'
     r'.*· weekly \d+% left.*|← for agents.*|.*\? for shortcuts|~/\S*|[─━╭╮╰╯│ ]+)$')
@@ -133,28 +133,45 @@ def question(raw):
     first = next((i for i, line in enumerate(body) if OPTION.match(line.strip())), None)
     if first is None:
         return None
-    options = []
+    options, column = [], 0
     for line in body[first:]:
         t = line.strip()
         m = OPTION.match(t)
         if m:
-            options.append({'number': int(m.group(1)), 'label': m.group(2).strip(), 'detail': ''})
-        elif not t or RULE.match(t) or HINT.search(t) or BOX.match(line):
+            # "Default (recommended) ✔   Sonnet 5 · Efficient…": a choice and, after a wide gap,
+            # what it means.
+            parts = re.split(r'\s{2,}', m.group(2).strip(), maxsplit=1)
+            options.append({'number': int(m.group(1)), 'label': parts[0], 'detail': parts[1] if len(parts) > 1 else ''})
+            # Where its label starts: a description under it is indented at least that far.
+            column = len(line) - len(line.lstrip()) + (line.lstrip().find(m.group(2)) if m.group(2) in line.lstrip() else 0)
+        elif not t or RULE.match(t) or BOX.match(line):
             continue
+        elif HINT.search(t) or MARKER.match(t) or len(line) - len(line.lstrip()) < column:
+            # Past the choices: the menu's own notes and keys.
+            if options:
+                break
         elif options:
             options[-1]['detail'] = (options[-1]['detail'] + ' ' + t).strip()
     # What it asks: the few lines just above the choices (after its last reply), without tabs,
     # rules and hints.
-    start = max((i for i in range(first) if MARKER.search(body[i].strip())), default=-1) + 1
+    # (after its last reply or the line drawn above a menu, whichever is lower).
+    start = max((i for i in range(first) if MARKER.search(body[i].strip()) or re.match(r'^[─━═▔▁╭╰┌└]{8,}', body[i].strip())), default=-1) + 1
     prompt = [t for t in (line.strip() for line in body[start:first])
-              if t and not re.search(r'^[─━╌╍╭╮╰╯┌┐└┘]{2,}', t) and not HINT.search(t)
+              if t and not re.search(r'^[─━╌╍═▔▁╭╮╰╯┌┐└┘]{2,}', t) and not HINT.search(t)
               and '☐' not in t and '☒' not in t and '✔' not in t and not t.startswith('←')]
     seen, unique = set(), []
     for o in options:
         if o['number'] not in seen:
             seen.add(o['number'])
             unique.append(o)
-    return {'prompt': '\n'.join(prompt[-3:]), 'options': unique}
+    # Lines the terminal wrapped (they run nearly its width) join back up.
+    joined = []
+    for t in prompt[-4:]:
+        if joined and len(joined[-1]) >= 60:
+            joined[-1] += ' ' + t
+        else:
+            joined.append(t)
+    return {'prompt': '\n'.join(joined), 'options': unique}
 
 
 def plain(screen):

@@ -58,7 +58,7 @@ class QuestionTests(unittest.TestCase):
 
     def test_scrolling_menu(self):
         screen = '\n'.join([
-            '   Select model', '   Switch between Claude models.',
+            '▝▝ ▝▝    ~/src/public/valkrie', '▔' * 80, '   Select model', '   Switch between Claude models.',
             '   ❯ 1. Default (recommended) ✔  Sonnet 5 · Efficient for routine tasks',
             '     2. Sonnet                   Sonnet 5 · Efficient for routine tasks',
             '   ↓ 3. Fable                    Fable 5.1 · Most capable for your hardest',
@@ -67,6 +67,19 @@ class QuestionTests(unittest.TestCase):
         q = R.question(screen)
         self.assertEqual([o['number'] for o in q['options']], [1, 2, 3])
         self.assertEqual(q['prompt'], 'Select model\nSwitch between Claude models.')
+        self.assertEqual(q['options'][0]['label'], 'Default (recommended) ✔')
+        self.assertEqual(q['options'][0]['detail'], 'Sonnet 5 · Efficient for routine tasks')
+        # Its description runs on under it; the menu's notes after the choices aren't part of it.
+        self.assertEqual(q['options'][2]['detail'], 'Fable 5.1 · Most capable for your hardest and longest-running tasks')
+
+    def test_wrapped_question_joins_up(self):
+        screen = '\n'.join([
+            '   Switch between Claude models. Your pick becomes the default for new',
+            '   sessions. For other names, specify with --model.', '', '   ❯ 1. Default', '     2. Sonnet',
+            '   ● High effort (default) ←/→ to adjust'])
+        q = R.question(screen)
+        self.assertEqual(q['prompt'], 'Switch between Claude models. Your pick becomes the default for new sessions. For other names, specify with --model.')
+        self.assertEqual([o['detail'] for o in q['options']], ['', ''])
 
     def test_no_choices(self):
         self.assertIsNone(R.question('● Done.\n\n› Ask Codex to do anything\n\n  ? for shortcuts'))
