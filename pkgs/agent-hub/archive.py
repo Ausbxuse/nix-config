@@ -145,6 +145,7 @@ class Archive:
                 db.execute("INSERT INTO archive_research_sources VALUES(?,(SELECT CAST(value AS INTEGER) FROM archive_research_meta WHERE key='revision'))", (row['id'],))
         # Keeps the WAL open between writes (see Hub.wal_anchor).
         self.wal_anchor = sqlite3.connect(self.path, check_same_thread=False)
+        self.wal_anchor.execute('PRAGMA schema_version').fetchone()  # opens the WAL; an unused connection holds nothing
 
     @staticmethod
     def _clean_context(db):

@@ -159,6 +159,7 @@ class Hub:
         # rewrite with fsyncs per second-by-second poll. This idle connection
         # keeps the WAL open so it checkpoints every 1000 pages instead.
         self.wal_anchor = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.wal_anchor.execute('PRAGMA schema_version').fetchone()  # opens the WAL; an unused connection holds nothing
         self.deliveries = Deliveries(self)
         self.attachments = Attachments(self)
         self.continuity = Continuity(self)
