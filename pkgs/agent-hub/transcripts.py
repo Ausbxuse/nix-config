@@ -16,30 +16,6 @@ import threading
 import time
 
 from bridge import CODEX_PLACEHOLDERS, TOOL_PREFIX, terminal_content
-
-
-_FOLDERS = {}
-
-
-def resolved(path):
-    """path.resolve(), with each folder's own resolution kept by its identity (device, inode):
-    the same logs are matched on every poll, and resolving walks every folder of the path, an
-    lstat each (a twentieth of a core on gpu-004). A folder replaced, by a symlink or anything,
-    has another identity and is resolved again; a file that is itself a symlink is resolved whole."""
-    path = Path(path)
-    try:
-        folder = os.stat(path.parent)
-        if path.name in ('', '.', '..') or path.is_symlink():
-            return path.resolve()
-    except OSError:
-        return path.resolve()
-    key = (str(path.parent), folder.st_dev, folder.st_ino)
-    base = _FOLDERS.get(key)
-    if base is None:
-        if len(_FOLDERS) > 2048:
-            _FOLDERS.clear()
-        base = _FOLDERS[key] = path.parent.resolve()
-    return base / path.name
 from claude_sessions import ClaudeSessions
 from message_content import user_text
 
@@ -527,10 +503,10 @@ class Transcripts:
 
     def _read_tail(self, path, runtime, history):
         allowed = self.root if runtime == 'codex' else self.claude_root
-        real = resolved(path)
-        if path.is_symlink() or not real.is_relative_to(allowed):
+        resolved = path.resolve()
+        if path.is_symlink() or not resolved.is_relative_to(allowed):
             return '', []
-        key = (real, runtime, bool(history))
+        key = (resolved, runtime, bool(history))
         with self.lock:
             stat = path.stat()
             stamp = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
@@ -691,7 +667,7 @@ class Transcripts:
             for hint in ([previous] if previous else []) + list(hints):
                 try:
                     path = Path(hint)
-                    if path.suffix == ".jsonl" and resolved(path).is_relative_to(allowed) and path.is_file():
+                    if path.suffix == ".jsonl" and path.resolve().is_relative_to(allowed) and path.is_file():
                         paths = [path, *[item for item in paths if item != path]]
                 except OSError:
                     continue
@@ -722,9 +698,9 @@ class Transcripts:
                         break
                 if evidence:
                     score, visible_start, visible_end, index = evidence
-                    cached = self.cache.get((resolved(path), runtime, bool(history)), {})
+                    cached = self.cache.get((path.resolve(), runtime, bool(history)), {})
                     identity = {'thread_id': cached.get('view', {}).get('session', ''),
-                                'path': str(resolved(path)), 'cwd': cwd} if runtime == 'codex' else {}
+                                'path': str(path.resolve()), 'cwd': cwd} if runtime == 'codex' else {}
                     matches.append((score, path, index, messages, identity, visible_start, visible_end))
         if not matches:
             return {}
@@ -761,7 +737,7 @@ class Transcripts:
             return {}
         if agent.get('id'):
             with self.lock:
-                self.matched_paths[agent['id']] = str(resolved(path))
+                self.matched_paths[agent['id']] = str(path.resolve())
                 self.matched_paths.move_to_end(agent['id'])
                 while len(self.matched_paths) > 128:
                     self.matched_paths.popitem(last=False)
@@ -771,5 +747,5 @@ class Transcripts:
             selected.pop(0)
         return {"source": "original", "messages": selected, "history": history,
                 "history_note": "Up to 200 messages from the last 16 MB of the matched session." if history else "",
-                **({'archive_source': str(resolved(path))} if binding else {}),
+                **({'archive_source': str(path.resolve())} if binding else {}),
                 **({'binding': identity} if binding and identity.get('thread_id') else {})}
