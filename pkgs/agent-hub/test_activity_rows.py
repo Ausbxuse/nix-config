@@ -39,6 +39,16 @@ class ActivityRows(unittest.TestCase):
         self.assertEqual(bridge.classify(pane, screen)[0], "running")
 
 
+class Finished(unittest.TestCase):
+    def test_a_finished_turn_under_claude_codes_clear_hint(self):
+        rule = "─" * 60
+        screen = ("● The files are in artifacts/runs/moved_layouts_site/.\n\n✻ Crunched for 1m 30s · done 1:34 PM\n"
+                  + " " * 120 + "new task? /clear to save 117.4k tokens\n" + rule + "\n❯\xa0\n" + rule + "\n  status\n")
+        self.assertTrue(bridge.terminal_completion(screen))
+        pane = {"state": "done", "summary": "", "live": True, "runtime": "claude"}
+        self.assertEqual(bridge.observation(pane, screen)["state"], "done")
+
+
 class Interrupted(unittest.TestCase):
     RULE = "─" * 40
 

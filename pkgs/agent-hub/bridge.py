@@ -122,6 +122,11 @@ def terminal_rows(text):
             recap_indent = None
         if ((indent == 0 and QUOTA_NOTICE.fullmatch(trimmed)) or QUOTA_FOOTER.fullmatch(trimmed)):
             continue
+        # Claude Code's hint at the right, under a finished turn with a long context ("new task?
+        # /clear to save 117.4k tokens"): its own, not the reply (as the screen reader has it).
+        if re.fullmatch(r'new task\? /clear\b.*', trimmed):
+            rows.append(('chrome', line))
+            continue
         if RECAP_HEADER.fullmatch(line):
             recap_indent = 2
             continue
