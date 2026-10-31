@@ -367,9 +367,12 @@ class Watcher:
                     prior["missing"] = True
                 observed[key] = prior
         with self.hub.db() as db:
-            db.executemany("INSERT OR REPLACE INTO watch_observations VALUES(?,?)", [(key, json.dumps(value)) for key, value in observed.items()])
+            # This runs every second; rewriting unchanged rows was most of the
+            # hub's disk writes.
+            db.executemany("INSERT OR REPLACE INTO watch_observations VALUES(?,?)",
+                           [(key, json.dumps(value)) for key, value in observed.items() if old.get(key) != value])
             if snapshot["agents"]:
-                db.execute("INSERT OR REPLACE INTO watch_settings VALUES('initialized','true')")
+                db.execute("INSERT OR IGNORE INTO watch_settings VALUES('initialized','true')")
             # Bounded retention. Pending delivery gets a day; read history gets a month.
             db.execute("UPDATE notifications SET push_state='expired' WHERE push_state='pending' AND created<?", (now - 86400,))
             db.execute("DELETE FROM notifications WHERE handled_at IS NOT NULL AND handled_at<?", (now - 30 * 86400,))

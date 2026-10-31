@@ -143,6 +143,8 @@ class Archive:
             for row in db.execute('SELECT id FROM archive_sessions WHERE id NOT IN (SELECT session FROM archive_research_sources) ORDER BY updated DESC').fetchall():
                 db.execute("UPDATE archive_research_meta SET value=CAST(value AS INTEGER)+1 WHERE key='revision'")
                 db.execute("INSERT INTO archive_research_sources VALUES(?,(SELECT CAST(value AS INTEGER) FROM archive_research_meta WHERE key='revision'))", (row['id'],))
+        # Keeps the WAL open between writes (see Hub.wal_anchor).
+        self.wal_anchor = sqlite3.connect(self.path, check_same_thread=False)
 
     @staticmethod
     def _clean_context(db):
@@ -166,6 +168,7 @@ class Archive:
     def db(self):
         db = sqlite3.connect(self.path, timeout=5)
         db.row_factory = sqlite3.Row
+        db.execute('PRAGMA synchronous=NORMAL')
         try:
             with db:
                 yield db
@@ -183,6 +186,7 @@ class Archive:
         self.stop.set(); self.wake.set()
         if self.thread:
             self.thread.join(5)
+        self.wal_anchor.close()
 
     def run(self):
         while not self.stop.is_set():

@@ -154,6 +154,11 @@ class Hub:
             if "context_agent_id" not in {row[1] for row in db.execute("PRAGMA table_info(messages)")}:
                 db.execute("ALTER TABLE messages ADD COLUMN context_agent_id TEXT NOT NULL DEFAULT ''")
             rows = db.execute("SELECT value FROM connections").fetchall()
+        # Every write opens its own connection, and the last one to close
+        # checkpoints the WAL into the database and deletes it: a full
+        # rewrite with fsyncs per second-by-second poll. This idle connection
+        # keeps the WAL open so it checkpoints every 1000 pages instead.
+        self.wal_anchor = sqlite3.connect(self.db_path, check_same_thread=False)
         self.deliveries = Deliveries(self)
         self.attachments = Attachments(self)
         self.continuity = Continuity(self)
@@ -191,6 +196,9 @@ class Hub:
     def db(self):
         db = sqlite3.connect(self.db_path, timeout=10)
         db.row_factory = sqlite3.Row
+        # WAL stays consistent without an fsync per commit; a power cut can
+        # lose only the last moments of polling state.
+        db.execute("PRAGMA synchronous=NORMAL")
         try:
             with db:
                 yield db
@@ -1458,6 +1466,7 @@ Unused strings are empty except instruction_source, which is current or previous
         self.codex_account.close()
         self.approvals.close()
         self.archive.close()
+        self.wal_anchor.close()
         with self.scan_changed:
             for wake in self.scan_wake.values():
                 wake.set()

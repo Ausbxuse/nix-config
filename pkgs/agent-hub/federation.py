@@ -266,6 +266,8 @@ class Mesh:
 
     def save_cache(self, node, value):
         with self.lock:
+            if self.cache.get(node) == value:
+                return  # Polled every second; most polls change nothing.
             self.cache[node] = copy.deepcopy(value)
         with self.hub.db() as db:
             db.execute('INSERT OR REPLACE INTO node_cache VALUES(?,?)', (node, json.dumps(value)))
