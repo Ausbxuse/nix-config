@@ -531,6 +531,7 @@ class Hub:
             def capture_terminal():
                 return {
                     'ansi': bridge.capture_terminal(connection, agent['pane'], 2000 if history else 150),
+                    'size': bridge.pane_size(connection, agent['pane']),
                     'theme': self.terminal_themes.get((connection.get('id'), connection.get('target'), connection.get('socket')),
                                                      lambda: bridge.terminal_theme(connection))}
             value['terminal'] = capture_terminal() if fresh else self.reads.get(
@@ -937,6 +938,10 @@ class Hub:
                 elif kind == "choose":
                     bridge.choose(config, agent, value.get('number'))
                     text = f'Chose {value.get("number")} for {agent["title"]} on {config["label"]}'
+                elif kind == "keys":
+                    # Typing into its terminal (the phone's terminal view): each key isn't an event.
+                    bridge.keys(config, agent, value.get('keys'))
+                    return {'ok': True}
                 elif kind == "answer":
                     bridge.answer(config, agent, value.get('number'), value.get('message'))
                     text = f'Answered {agent["title"]} on {config["label"]}'
@@ -1531,7 +1536,7 @@ Unused strings are empty except instruction_source, which is current or previous
             if method == 'worker/execute':
                 with self.action_lock:
                     action = value.get('action', {})
-                    if action.get('type') not in ('send', 'queue', 'queue_update', 'queue_delete', 'approval_respond', 'interrupt', 'choose', 'answer', 'launch', 'fork', 'rename', 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
+                    if action.get('type') not in ('send', 'queue', 'queue_update', 'queue_delete', 'approval_respond', 'interrupt', 'choose', 'answer', 'keys', 'launch', 'fork', 'rename', 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
                         raise bridge.BridgeError('Unsupported worker command')
                     return self.mesh.execute_once(action.get('command_id'), action, lambda: self.local_action(action))
             raise bridge.BridgeError('Worker nodes expose local observations and commands only')
@@ -1581,7 +1586,7 @@ Unused strings are empty except instruction_source, which is current or previous
                 if value.get("authority") != authority or peer != authority["owner"]:
                     raise bridge.BridgeError("Stale supervisor authority; command rejected")
                 action = value.get("action", {})
-                if action.get("type") not in ("send", "queue", 'queue_update', 'queue_delete', 'approval_respond', "interrupt", 'choose', "launch", "fork", "rename", 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
+                if action.get("type") not in ("send", "queue", 'queue_update', 'queue_delete', 'approval_respond', "interrupt", 'choose', 'answer', 'keys', "launch", "fork", "rename", 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
                     raise bridge.BridgeError("Unsupported peer command")
                 return self.mesh.execute_once(action.get("command_id"), action, lambda: self.local_action(action))
         raise bridge.BridgeError("Unknown peer operation")

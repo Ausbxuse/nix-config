@@ -406,6 +406,19 @@ class RoutingTests(unittest.TestCase):
         claude = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude', live=True)
         self.assertNotEqual(bridge.classify(claude, message)[0], 'waiting')
 
+    def test_typing_into_a_terminal_is_literal_text_and_named_keys(self):
+        expected = bridge.parse_panes(row(), self.local)[0]
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'run') as run:
+            bridge.keys(self.local, expected, [{'text': 'echo x;'}, {'key': 'Enter'}, {'key': 'C-c'}, {'key': 'Up'}])
+            self.assertEqual([c[0][1] for c in run.call_args_list], [
+                ['send-keys', '-t', expected['pane'], '-l', '--', 'echo x;'], ['send-keys', '-t', expected['pane'], 'Enter'],
+                ['send-keys', '-t', expected['pane'], 'C-c'], ['send-keys', '-t', expected['pane'], 'Up']])
+        for bad in ([], [{'key': 'Enter; kill-server'}], [{'key': 'C-c '}], [{'text': ''}], [{'text': 'a\x00'}], 'Enter', [{'key': 'kill-server'}]):
+            with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'run') as run:
+                with self.assertRaises(bridge.BridgeError):
+                    bridge.keys(self.local, expected, bad)
+                run.assert_not_called()
+
     def test_a_message_to_claude_while_it_asks_closes_the_menu_first(self):
         expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
         menu = "Do you want to proceed?\n❯ 1. Yes\n  2. No"

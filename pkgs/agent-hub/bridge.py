@@ -589,6 +589,42 @@ def answer(connection, agent, number, text):
 ANSWER_OPENS = .5
 
 
+# Keys by name, as tmux knows them: Enter, Escape, Tab, the arrows and the like, F1–F12, and a
+# letter (or one of those keys) with Ctrl or Alt.
+KEY = re.compile(r'(?:Enter|Escape|Tab|BTab|BSpace|DC|IC|Up|Down|Left|Right|Home|End|PPage|NPage|Space|F(?:[1-9]|1[0-2])'
+                 r'|(?:C-|M-|C-M-)(?:[a-z0-9@\[\]\\^_]|Up|Down|Left|Right|Enter|BSpace|Tab|Space))')
+
+
+def keys(connection, agent, keys):
+    """Types into the agent's terminal as one would at it (the phone's terminal view): each item
+    is {"text": ...}, typed as it is, or {"key": ...}, a key by name (see KEY). All are checked
+    before any is typed; each is its own tmux command (text ending in ";" would otherwise read as
+    tmux's command separator)."""
+    if not isinstance(keys, list) or not 1 <= len(keys) <= 200:
+        raise BridgeError("Send between 1 and 200 keys.")
+    current = verify_agent(connection, agent)
+    commands = []
+    for k in keys:
+        text = k.get('text') if isinstance(k, dict) else None
+        name = k.get('key') if isinstance(k, dict) else None
+        if isinstance(text, str) and 0 < len(text) <= 4000 and '\x00' not in text:
+            commands.append(['send-keys', '-t', current['pane'], '-l', '--', text])
+        elif isinstance(name, str) and KEY.fullmatch(name):
+            commands.append(['send-keys', '-t', current['pane'], name])
+        else:
+            raise BridgeError("That isn't a key it can type.")
+    for command in commands:
+        run(connection, command)
+
+
+def pane_size(connection, pane):
+    """The pane's width and height in characters."""
+    try:
+        return [int(n) for n in run(connection, ['display-message', '-p', '-t', pane, '#{pane_width} #{pane_height}']).split()[:2]]
+    except (BridgeError, ValueError):
+        return None
+
+
 def interrupt(connection, agent):
     current = verify_agent(connection, agent)
     state, _ = classify(current, capture(connection, current["pane"], 0))
