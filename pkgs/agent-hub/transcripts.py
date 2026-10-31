@@ -255,6 +255,10 @@ def claude_display(record, body):
         if not summary:
             return None
         return {"role": "tool", "kind": "task-update", "text": summary[1].strip()}
+    # A helper agent's report handed back to it (Claude Code gives it the agent as a message):
+    # the agent's own input, not something the user said.
+    if text.startswith("<agent-message "):
+        return {"role": "tool", "kind": "task-update", "text": "A helper agent reported back"}
     return {"role": record["message"]["role"], "text": body}
 
 
@@ -450,9 +454,12 @@ class Transcripts:
         else:
             # A message sent while Claude works is taken in mid-turn and logged as a queued
             # command, not as a user record; it is still what the user said.
+            # (Only what a person typed, or a helper agent's report, shown as such below; not other
+            # input the harness queues for the agent.)
             queued = record.get('attachment') if record.get('type') == 'attachment' else None
+            origin = (queued.get('origin') if isinstance(queued, dict) and isinstance(queued.get('origin'), dict) else None) or {}
             if (isinstance(queued, dict) and queued.get('type') == 'queued_command' and queued.get('commandMode', 'prompt') == 'prompt'
-                    and isinstance(queued.get('prompt'), (str, list))):
+                    and origin.get('kind', 'human') in ('human', 'peer') and isinstance(queued.get('prompt'), (str, list))):
                 record = {**record, 'type': 'user', 'message': {'role': 'user', 'content': queued['prompt']}}
             if record.get('type') not in ('user', 'assistant') or record.get('isSidechain'):
                 return

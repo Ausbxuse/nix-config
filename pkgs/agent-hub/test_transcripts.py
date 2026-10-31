@@ -133,6 +133,24 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual([(m['role'], m['text']) for m in messages],
                          [('user', 'Fix the plot.'), ('assistant', 'Looking.'), ('user', 'Also the legend.')])
 
+    def test_a_helper_agents_report_taken_in_mid_turn_is_not_a_user_message(self):
+        root = self.root/'claude'
+        root.mkdir()
+        path = root/'session.jsonl'
+        report = '<agent-message from="a39a">\n[Subagent hand-back] The report follows:\n  ## Review\n</agent-message>'
+        queued = lambda uuid, prompt, origin, **more: {'type':'attachment','uuid':uuid,'cwd':'/project',
+            'attachment':{'type':'queued_command','prompt':prompt,'commandMode':'prompt','origin':origin, **more}}
+        records = [
+            {'type':'user','uuid':'a','cwd':'/project','message':{'role':'user','content':'Profile the app.'}},
+            queued('b', report, {'kind':'peer','from':'a39a'}, isMeta=True),
+            queued('c', 'Something the harness queued.', {'kind':'scheduler'}),
+            queued('d', 'Also the hub.', {'kind':'human'}, humanTurn=True),
+        ]
+        path.write_text('\n'.join(map(json.dumps, records))+'\n')
+        messages = Transcripts(self.root, root).read_claude(path, True)[1]
+        self.assertEqual([(m['role'], m['text']) for m in messages],
+                         [('user', 'Profile the app.'), ('tool', 'A helper agent reported back'), ('user', 'Also the hub.')])
+
     def test_claude_runtime_notice_does_not_leak_or_change_history_identity(self):
         root = self.root/'claude'
         root.mkdir()
