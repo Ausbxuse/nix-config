@@ -2,7 +2,8 @@ import base64
 from pathlib import Path
 import tempfile
 import unittest
-from media import read_video
+from media import read_video, scratch
+import shutil
 from bridge import BridgeError
 
 class MediaTests(unittest.TestCase):
@@ -22,6 +23,27 @@ class MediaTests(unittest.TestCase):
             for name in ("../private.nix", str(root / "private.nix"), "escape.nix"):
                 with self.assertRaises(BridgeError):
                     read_video(agent, name)
+
+    def test_a_picture_in_its_own_scratch_folder_but_nothing_else_there(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "my.project"
+            project.mkdir()
+            agent = {"cwd": str(project)}
+            pad = scratch(project) / "session" / "scratchpad"
+            other = scratch(Path(directory) / "other") / "session"
+            try:
+                pad.mkdir(parents=True)
+                other.mkdir(parents=True)
+                (pad / "plot.png").write_bytes(b"\x89PNG")
+                (pad / "notes.txt").write_text("not a picture")
+                (other / "plot.png").write_bytes(b"\x89PNG")
+                self.assertEqual(read_video(agent, str(pad / "plot.png"))["type"], "image/png")
+                for name in (str(pad / "notes.txt"), str(other / "plot.png")):
+                    with self.assertRaises(BridgeError):
+                        read_video(agent, name)
+            finally:
+                shutil.rmtree(scratch(project), ignore_errors=True)
+                shutil.rmtree(scratch(Path(directory) / "other"), ignore_errors=True)
 
     def test_ranges_and_project_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
