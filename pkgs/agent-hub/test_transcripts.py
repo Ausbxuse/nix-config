@@ -728,3 +728,26 @@ class ClaudeDisplayTests(unittest.TestCase):
     def test_user_code_and_quoted_tags_stay_intact(self):
         for text in ('Explain <local-command-caveat>example</local-command-caveat>', '```xml\n<local-command-caveat>example</local-command-caveat>\n```', '<custom>data</custom>'):
             self.assertEqual(self.display(text), {"role":"user", "text":text})
+
+
+class Resolved(unittest.TestCase):
+    def test_a_kept_folder_resolution_is_the_same_as_resolving_and_follows_a_swapped_folder(self):
+        import tempfile
+        from transcripts import resolved
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'real').mkdir()
+            (root / 'other').mkdir()
+            (root / 'real' / 'a.jsonl').write_text('{}')
+            (root / 'other' / 'a.jsonl').write_text('{}')
+            (root / 'link').symlink_to(root / 'real')
+            for p in (root / 'real' / 'a.jsonl', root / 'link' / 'a.jsonl', root / 'real' / '..' / 'other' / 'a.jsonl'):
+                self.assertEqual(resolved(p), p.resolve())
+                self.assertEqual(resolved(p), p.resolve(), 'kept')
+            # The folder behind a path changes: resolved again, not kept.
+            (root / 'link').unlink()
+            (root / 'link').symlink_to(root / 'other')
+            self.assertEqual(resolved(root / 'link' / 'a.jsonl'), root.resolve() / 'other' / 'a.jsonl')
+            # A file that is itself a link is resolved whole.
+            (root / 'real' / 'b.jsonl').symlink_to(root / 'other' / 'a.jsonl')
+            self.assertEqual(resolved(root / 'real' / 'b.jsonl'), root.resolve() / 'other' / 'a.jsonl')
