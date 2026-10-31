@@ -66,3 +66,33 @@ sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 /dev/
 
 The mic device defaults to `auto` (built-in DMIC, else first capture device).
 Override with `my.server.micDevice = "plughw:1,10";` after checking `arecord -l`.
+
+## Build machine for razy (timy)
+
+`modules/nixos/build-server.nix` on timy and `modules/nixos/build-client.nix`
+on razy move razy's compiling to timy:
+
+- **Remote builds.** razy's nix-daemon sends builds to `nix-ssh@100.64.0.4`
+  (a login that can only run `nix-daemon --stdio`). If timy is unreachable,
+  razy gives up after 5 s and builds locally.
+- **Nightly pre-build.** At 02:30 timy builds razy's system from GitHub
+  `master` (with the committed nix-secrets) and pushes it to the
+  `zhenyu-public` attic cache, so razy's `just sys` mostly downloads.
+
+Builds on timy run with batch CPU and low I/O priority so they don't slow
+the agents.
+
+One-time setup:
+
+1. Rebuild razy once; it generates its builder key. Then add the output of
+   `sudo cat /etc/nix/remote-builder_ed25519.pub` (on razy) to
+   `my.buildServer.clientKeys` in `machines/timy/nixos.nix` and rebuild timy.
+2. Make a push token on milkyway:
+   `sudo atticd-atticadm make-token --sub timy-prebuild --validity 2y --pull zhenyu-public --push zhenyu-public`
+3. On timy, `sops ~/src/private/nix-secrets/secrets.yaml` and add
+   `attic-push-token: <token>`; commit it.
+4. Set `my.buildServer.prebuild.enable = true;` for timy and rebuild.
+
+Check: `systemctl start prebuild-hosts` then `journalctl -u prebuild-hosts`;
+on razy, `sudo nix store info --store 'ssh-ng://nix-ssh@100.64.0.4?ssh-key=/etc/nix/remote-builder_ed25519'`
+should print timy's store as `Trusted: 1`.

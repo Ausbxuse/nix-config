@@ -8,6 +8,7 @@
     ./kernel.nix
     ../../modules/nixos/hardware/rotate-sensor.nix
     ../../modules/nixos/server.nix
+    ../../modules/nixos/build-server.nix
   ];
 
   # Stays at home as a server: a fixed zone instead of guessing it from

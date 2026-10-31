@@ -75,6 +75,7 @@ in {
     ../../modules/nixos/initrd-unlock-deadline.nix
     ../../modules/nixos/hardware/rotate-sensor.nix
     ../../modules/nixos/ollama-agent.nix
+    ../../modules/nixos/build-client.nix
   ];
 
   networking.networkmanager.package = razyNetworkManager;
