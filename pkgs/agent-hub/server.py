@@ -103,6 +103,7 @@ class Hub:
         self.terminal_themes = SharedReads(ttl=15)
         self.live = LiveFeed(self.snapshot, self.preview, self.stop)
         self.speech = LocalSpeech((node_config or {}).get('voice_remote', ''))
+        self.speech.vocabulary = lambda: speech_names(self.snapshot(include_notifications=False).get('agents', []), self.mesh)
         self.csrf = secrets.token_urlsafe(32)
         self.backups = BackupStatus(self)
         self.poll_interval = poll_interval
@@ -1953,6 +1954,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         if args and str(args[1] if len(args) > 1 else "").startswith("5"):
             super().log_message(format, *args)
+
+
+def speech_names(agents, mesh=None):
+    """The words a call is likely to have that a speech model wouldn't guess: LESLEY, Valkrie,
+    the machines and every agent by name ("intention-score" said as "intention score")."""
+    names = ['LESLEY', 'Valkrie'] + ([mesh.node_id] + list(mesh.peers) if mesh else [])
+    names += [str(a.get('title', '')).replace('-', ' ').replace('_', ' ') for a in agents]
+    seen = []
+    for n in names:
+        if n and n.lower() not in (s.lower() for s in seen):
+            seen.append(n)
+    return ', '.join(seen) + '.'
 
 
 def bind_listener(factory, address, stop, retry=1):

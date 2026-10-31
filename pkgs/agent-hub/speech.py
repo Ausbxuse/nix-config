@@ -137,6 +137,9 @@ class LocalSpeech:
         # A voice on another machine (LESLEY's GPU voice: POST /speak, /warm), asked first;
         # Kokoro here speaks whatever it can't in time.
         self.remote = remote.rstrip('/')
+        # The names it's likely to hear (agents, machines), as a hint for the remote ears.
+        self.vocabulary = lambda: ''
+
         self.model = Path(os.environ.get('AGENT_HUB_WHISPER_MODEL', '/nonexistent'))
         self.executable = os.environ.get('AGENT_HUB_WHISPER_WORKER') or shutil.which('agent-hub-whisper')
         self.lock = SpeechLane('asr')
@@ -248,9 +251,9 @@ class LocalSpeech:
         with self.voice_lock.request(work, ready=cached is not None):
             return cached if cached is not None else self._speak(text)
 
-    def _remote(self, path, body, timeout):
+    def _remote(self, path, body, timeout, kind='application/json'):
         import urllib.request
-        request = urllib.request.Request(self.remote + path, data=body, headers={'Content-Type': 'application/json'})
+        request = urllib.request.Request(self.remote + path, data=body, headers={'Content-Type': kind})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read()
@@ -319,6 +322,20 @@ class LocalSpeech:
             return {'text': '', 'duration_ms': duration_ms, 'elapsed_ms': 0}
         key = hashlib.sha256(pcm).digest()
         cached = self.transcripts.get(key)
+        if cached is None and self.remote:
+            # The remote ears first (a larger Whisper behind a speech detector, given the names
+            # it's likely to hear); this hub's own Whisper when they can't answer in time.
+            started = time.monotonic()
+            from urllib.parse import quote
+            heard = self._remote('/hear?prompt=' + quote(self.vocabulary()[:400]), audio, REMOTE_WAIT, 'audio/wav')
+            try:
+                text = json.loads(heard)['text'] if heard else None
+            except (ValueError, KeyError, TypeError):
+                text = None
+            if isinstance(text, str):
+                self.transcripts.put(key, text)
+                return {'text': text, 'duration_ms': duration_ms, 'cached': False,
+                        'elapsed_ms': round((time.monotonic() - started) * 1000)}
         with self.lock.request(work, ready=cached is not None):
             return self._transcribe(pcm, key, duration_ms, cached)
 

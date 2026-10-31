@@ -219,6 +219,24 @@ class SpeechTests(unittest.TestCase):
                 speech.speak('Late.')
         self.assertEqual(asked[-1][:2], ('/speak', 'Late.'), 'asked first, then Kokoro was tried')
 
+    def test_remote_ears_hear_first_with_the_names_and_this_whisper_takes_what_they_cannot(self):
+        speech = self.speech
+        speech.remote = 'http://127.0.0.1:8799'
+        speech.vocabulary = lambda: 'LESLEY, Valkrie, rl.'
+        asked = []
+        answers = [b'{"text": "What did the RL agent do?"}', None]
+        def remote(path, body, timeout, kind='application/json'):
+            asked.append((path, kind))
+            return answers.pop(0)
+        speech._remote = remote
+        speech.worker = Mock(); speech.worker.transcribe.return_value = 'what did the our el agent do'
+        first = speech.transcribe(recording())
+        self.assertEqual(first['text'], 'What did the RL agent do?')
+        self.assertEqual(asked[0], ('/hear?prompt=LESLEY%2C%20Valkrie%2C%20rl.', 'audio/wav'))
+        speech.worker.transcribe.assert_not_called()
+        second = speech.transcribe(recording(seconds=0.9))
+        self.assertEqual(second['text'], 'what did the our el agent do', 'no answer from the ears: this hub hears it')
+
     def test_playback_rejects_unbounded_input_and_busy_requests(self):
         for text in [None, '', ' ', 'x' * 401, 'bad\x00text']:
             with self.assertRaises(SpeechError) as result:
