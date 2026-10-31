@@ -365,7 +365,7 @@ def classify(pane, output):
         if re.search(r"^\s*›(?:\s|$)", footer, re.M) and state == "running":
             return "done", "Turn ended; ready for review"
     if pane["runtime"] == "claude":
-        if re.search(r"^\s*(?:Do you want|❯\s*1\.)", footer, re.I | re.M):
+        if claude_menu(footer):
             return "waiting", "Needs approval in the agent"
         if any(kind == 'activity' for kind, _ in rows):
             return "running", "Working"
@@ -431,12 +431,39 @@ def verify_agent(connection, expected):
     return current
 
 
+def claude_menu(screen):
+    """Whether a Claude Code menu (a question, a permission prompt) is open: its highlighted
+    choice is the last ❯ on the screen. Claude Code marks your past messages and its input box
+    with ❯ too, so "❯ 1. ..." can be a message of yours; but an open menu takes the input box's
+    place, and the input box sits right under a rule."""
+    lines = [re.sub(r'^\s*[│┃]\s?', '', re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', line)).rstrip() for line in screen.split('\n')]
+    marks = [i for i, line in enumerate(lines) if re.match(r'^\s*❯', line)]
+    if not marks or not re.match(r'^\s*❯\s*\d+\.\s+\S', lines[marks[-1]]):
+        return False
+    above = next((line.strip() for line in reversed(lines[:marks[-1]]) if line.strip()), '')
+    return not re.match(r'^[─━]{8,}', above)
+
+
+def dismiss_menu(connection, current):
+    """Closes the open Claude Code menu with Esc, as one would in the terminal before typing a
+    message instead of choosing (a permission is declined, a question left unanswered)."""
+    run(connection, ["send-keys", "-t", current["pane"], "Escape"])
+    for _ in range(20):
+        time.sleep(.1)
+        if not claude_menu(capture(connection, current["pane"], 0)):
+            return
+    raise BridgeError("Its menu didn't close; nothing was sent.")
+
+
 def send(connection, agent, message):
     current = verify_agent(connection, agent)
     state, _ = classify(current, capture(connection, current["pane"], 0))
     if state == "running":
         raise BridgeError("This agent is working. Pause it before sending a new instruction.")
-    if state == "waiting":
+    # A message sent while Claude asks: the menu is closed first, and the message is the answer.
+    if state == "waiting" and current.get("runtime") == "claude":
+        dismiss_menu(connection, current)
+    elif state == "waiting":
         raise BridgeError("This agent has an interactive decision. Resolve it in tmux first.")
     if not isinstance(message, str) or not message.strip() or len(message) > 12000 or "\x00" in message:
         raise BridgeError("Send a message between 1 and 12,000 characters.")
@@ -457,7 +484,9 @@ def queue(connection, agent, message):
         screen = capture(connection, current['pane'], 0)
         state, _ = classify(current, screen)
         if state == 'waiting':
-            raise BridgeError('This agent has an interactive decision. Resolve it in tmux first.')
+            dismiss_menu(connection, current)
+            screen = capture(connection, current['pane'], 0)
+            state, _ = classify(current, screen)
         from claude_models import empty_editor
         if not empty_editor(current, screen, capture_terminal(connection, current['pane'], 0)):
             raise BridgeError('This agent has a terminal draft or open menu. Finish it before sending.')

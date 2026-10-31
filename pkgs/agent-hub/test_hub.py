@@ -384,6 +384,26 @@ class RoutingTests(unittest.TestCase):
             bridge.choose(self.local, expected, 3)
             self.assertEqual(run.call_args[0][1][-1], "3")
 
+    def test_a_claude_menu_is_its_highlighted_choice_not_a_numbered_message(self):
+        rule = '─' * 40
+        message = f"❯ 1. don't add the needs you. keep the sessions fixed\n\n● Done.\n\n{rule}\n❯ \n{rule}\n  ? for shortcuts"
+        self.assertFalse(bridge.claude_menu(message))
+        self.assertFalse(bridge.claude_menu(f"● Do you want me to go on?\n\n{rule}\n❯ 1. a draft of mine\n{rule}"))
+        self.assertTrue(bridge.claude_menu("Do you want to proceed?\n❯ 1. Yes\n  2. No, and tell Claude what to do differently (esc)"))
+        self.assertTrue(bridge.claude_menu(f"{message}\n│ How long?\n\n  1. Short\n❯ 2. Long\n{rule}\n  3. Chat about this\n\nEnter to select · Esc to cancel"))
+        claude = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude', live=True)
+        self.assertNotEqual(bridge.classify(claude, message)[0], 'waiting')
+
+    def test_a_message_to_claude_while_it_asks_closes_the_menu_first(self):
+        expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
+        menu = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
+        closed = f"⎿ Interrupted\n{'─' * 40}\n❯ \n{'─' * 40}"
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', side_effect=[menu, closed]), \
+                patch.object(bridge, 'classify', return_value=('waiting', '')), patch.object(bridge, 'run') as run, patch.object(bridge, 'paste') as paste:
+            bridge.send(self.local, expected, 'do it differently')
+            self.assertEqual(run.call_args_list[0][0][1][-1], 'Escape')
+            paste.assert_called_once()
+
     def test_claude_takes_a_message_mid_turn_only_into_an_empty_box(self):
         expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
         with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', return_value='screen'), \
