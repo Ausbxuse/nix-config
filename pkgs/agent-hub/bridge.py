@@ -38,9 +38,13 @@ QUOTA_NOTICE = re.compile(
 QUOTA_FOOTER = re.compile(
     r"^⚠\ufe0f?\s+(?:weekly|daily|session|5h|5-hour) limit: only <?\d+(?:\.\d+)?% left"
     r"\s*·\s*resets [^\n]+\s*·\s*/status$", re.I)
+# Working: Codex's "• Working (12s • esc to interrupt)", or Claude Code's spinner, whatever is in
+# its brackets: "✶ Deciphering…" as it starts, "(running UserPromptSubmit hook · 0s)", "(4s ·
+# thinking)" (a long while, on high effort), "(9s · ↓ 1.2k tokens)", "(running Stop hook · 21s …)".
 ACTIVITY_ROW = re.compile(
     r"^[•●✻✽✶✢✳·*]\s+[^()\n]+\((?:\d+[hms]\s*)+[•·][^)\n]*"
-    r"(?:esc to interrupt|tokens\b)[^)\n]*\)(?:\s*[·•].*)?[ \t]*$", re.I)
+    r"(?:esc to interrupt|tokens\b)[^)\n]*\)(?:\s*[·•].*)?[ \t]*$"
+    r"|^[✻✽✶✢✳·*]\s+[A-Z][\w'-]*…(?:\s+\([^)\n]*\))?(?:\s*[·•][^\n]*)?[ \t]*$", re.I)
 COMPLETION_ROW = re.compile(
     r"^(?:Worked for |[✻✽✶✢✳]\s+[^\n]+?\s+for )\d+(?:\.\d+)?(?:ms|[hms])\b[^\n]*$", re.I)
 COMPLETED_AT = re.compile(

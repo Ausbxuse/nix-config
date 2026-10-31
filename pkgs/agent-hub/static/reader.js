@@ -10,6 +10,7 @@
   const failedTool = text => /^(?:Failed |Exited \(status [1-9]\d*\))/.test(text);
   const queueHint = (text) => /^(?:↳\s*)?shift\s*\+\s*(?:\S+\s+)?(?:to\s+)?edit last queued message(?:\s*[·•].*)?$/i.test(text);
   const activityRow = (text) => /^[•●✻✽✶✢✳·*]\s+[^()\n]+\((?:\d+[hms]\s*)+[•·][^)\n]*(?:esc to interrupt|tokens\b)[^)\n]*\)(?:\s*[·•].*)?[ \t]*$/i.test(text) ||
+    /^[✻✽✶✢✳·*]\s+[A-Z][\w'-]*…(?:\s+\([^)\n]*\))?(?:\s*[·•][^\n]*)?[ \t]*$/i.test(text) ||
     /^[•●✻✽✶✢✳·*]\s+(?:Auto[- ]?)?Compacting(?:\s+(?:context|conversation))?\s*(?:…|\.{3})?(?:\s*\((?:\d+[hms]\s*)+(?:[•·][^)\n]*)?\))?(?:\s*·\s*\d+ background terminals? running(?:\s*·[^\n]*)?)?\s*$/i.test(text);
   const completionRow = text => /^(?:Worked for |[✻✽✶✢✳]\s+[^\n]+?\s+for )\d+(?:\.\d+)?(?:ms|[hms])\b[^\n]*$/i.test(text);
   const completedAt = text => /^done\s+(?:(?:[A-Z][a-z]{2,8}\s+\d{1,2}(?:,\s*\d{4})?|today|yesterday)\s+at\s+)?\d{1,2}:[0-5]\d(?::[0-5]\d)?(?:\s*[AP]M)?$/i.test(text);

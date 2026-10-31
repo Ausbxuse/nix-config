@@ -16,6 +16,7 @@ CHROME = re.compile(
     r'.*plan mode on.*|.*shift\s*\+\s*tab to cycle.*|(?:↳\s*)?shift\s*\+\s*\S*\s*(?:to\s+)?edit last queued message.*|'
     r'\(disable recaps in /config\)|⚠.*limit.*|[─━]{8,})$', re.I)
 ACTIVITY = re.compile(r'^[•●✻✽✶✢✳·*]\s+[^()\n]+\((?:\d+[hms]\s*)+[•·][^)\n]*(?:esc to interrupt|tokens\b)[^)\n]*\).*$|'
+                      r'^[✻✽✶✢✳·*]\s+[A-Z][\w\'-]*…(?:\s+\([^)\n]*\))?(?:\s*[·•].*)?$|'
                       r'^[•●✻✽✶✢✳·*]\s+(?:Auto[- ]?)?Compacting.*$', re.I)
 COMPLETION = re.compile(r'^(?:Worked for |[✻✽✶✢✳]\s+\S+\s+for )\d+(?:\.\d+)?(?:ms|[hms])\b.*$', re.I)
 MARKER = re.compile(r'^[•●]\s(.+)')
