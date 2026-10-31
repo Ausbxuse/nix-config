@@ -589,10 +589,11 @@ def answer(connection, agent, number, text):
 ANSWER_OPENS = .5
 
 
-# Keys by name, as tmux knows them: Enter, Escape, Tab, the arrows and the like, F1–F12, and a
-# letter (or one of those keys) with Ctrl or Alt.
-KEY = re.compile(r'(?:Enter|Escape|Tab|BTab|BSpace|DC|IC|Up|Down|Left|Right|Home|End|PPage|NPage|Space|F(?:[1-9]|1[0-2])'
-                 r'|(?:C-|M-|C-M-)(?:[a-z0-9@\[\]\\^_]|Up|Down|Left|Right|Enter|BSpace|Tab|Space))')
+# Keys by name, as tmux knows them: Enter, Escape, Tab, the arrows and the like, F1–F12, any of
+# them with Ctrl or Alt (the phone's ctrl and alt apply to whatever is pressed next: C-Home,
+# M-Escape), and a character with Ctrl or Alt.
+KEY = re.compile(r'(?:C-|M-|C-M-)?(?:Enter|Escape|Tab|BTab|BSpace|DC|IC|Up|Down|Left|Right|Home|End|PPage|NPage|Space|F(?:1[0-2]|[1-9]))'
+                 r'|(?:C-|M-|C-M-)[a-z0-9@\[\]\\^_]')
 
 
 def keys(connection, agent, keys):
