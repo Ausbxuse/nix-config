@@ -573,6 +573,12 @@ class Hub:
         # the agent is still at it, so it isn't done (no "finished" for each report).
         if agent.get('runtime') == 'claude' and agent.get('live') and observation.get('state') in ('done', 'unknown') and bridge.background_work(screen):
             observation = {**observation, 'state': 'running', 'summary': 'Working in the background', 'completion_confirmed': False}
+        # Writing its reply, Claude Code hides its spinner: no activity, no completion, just the
+        # prompt ('unknown'). Its log says the turn is still open and the screen doesn't show it
+        # interrupted (a log can stay open after one): it's still working.
+        elif (agent.get('runtime') == 'claude' and agent.get('live') and observation.get('state') == 'unknown'
+              and (observation.get('turn_status') or {}).get('state') == 'running' and not bridge.interrupted(screen)):
+            observation = {**observation, 'state': 'running', 'summary': 'Working', 'completion_confirmed': False}
         return observation
 
     def _local_preview(self, connection, agent, history=False, fresh=False):

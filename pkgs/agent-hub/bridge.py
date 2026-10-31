@@ -394,6 +394,15 @@ def background_work(screen):
     return bool(re.search(r'\d+\s+(?:shells?|monitors?|background tasks?)\s+still running', lines[done]))
 
 
+def interrupted(screen):
+    """Whether the agent's last turn on screen was interrupted (Claude Code's "⎿ Interrupted · What
+    should Claude do instead?" after the last message you sent): its log may still say the turn is
+    open, but it isn't working."""
+    rows = [line for kind, line in terminal_rows(screen.rstrip()) if kind != 'editor']
+    sent = max((i for i, line in enumerate(rows) if re.match(r'^❯\s+\S', line)), default=-1)
+    return any(re.match(r'^\s*⎿\s+Interrupted\b', line) for line in rows[sent + 1:])
+
+
 def observation(pane, output):
     state, summary = classify(pane, output)
     completed = state == 'done' and terminal_completion(output)
