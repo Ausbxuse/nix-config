@@ -118,9 +118,12 @@ in {
 
     # Plugged in around the clock: hold the battery at a storage charge
     # instead of 100 %. The desktop's `duo bat-limit` only ran at login,
-    # which a headless server never reaches.
-    services.udev.extraRules = ''
-      ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT*", ATTR{charge_control_end_threshold}="${toString cfg.batteryChargeLimit}"
+    # which a headless server never reaches. Writing the threshold raises a
+    # change event, so only write when it differs or the rule feeds itself.
+    services.udev.extraRules = let
+      limit = toString cfg.batteryChargeLimit;
+    in ''
+      ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT*", ATTR{charge_control_end_threshold}!="${limit}", ATTR{charge_control_end_threshold}="${limit}"
     '';
 
     # Wi-Fi power save delays packets to an idle station, which shows up as
