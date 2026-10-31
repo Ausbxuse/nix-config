@@ -85,6 +85,11 @@ in {
       default = "auto";
       description = "ALSA capture device sampled for ambient loudness (`arecord -L`), or `auto` for the built-in mic.";
     };
+    batteryChargeLimit = lib.mkOption {
+      type = lib.types.ints.between 20 100;
+      default = 60;
+      description = "Charge level the battery stops at (charge_control_end_threshold); ASUS calls 60 its maximum-lifespan mode.";
+    };
     initrdNetworkModules = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       # Common onboard and USB ethernet adapters; initrd Wi-Fi is not supported.
@@ -110,6 +115,17 @@ in {
       AllowHybridSleep = false;
       AllowSuspendThenHibernate = false;
     };
+
+    # Plugged in around the clock: hold the battery at a storage charge
+    # instead of 100 %. The desktop's `duo bat-limit` only ran at login,
+    # which a headless server never reaches.
+    services.udev.extraRules = ''
+      ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT*", ATTR{charge_control_end_threshold}="${toString cfg.batteryChargeLimit}"
+    '';
+
+    # Wi-Fi power save delays packets to an idle station, which shows up as
+    # laggy SSH and tailnet replies.
+    networking.networkmanager.wifi.powersave = false;
 
     # GDM suspends the login screen after 20 minutes by default.
     services.displayManager.gdm.autoSuspend = false;
