@@ -133,6 +133,10 @@ def question(raw):
     first = next((i for i, line in enumerate(body) if OPTION.match(line.strip())), None)
     if first is None:
         return None
+    # The menu is the last run of choices: from its "1." (the nearest one above its last choice),
+    # not a numbered list in a reply further up the screen.
+    last = max(i for i, line in enumerate(body) if OPTION.match(line.strip()))
+    first = max((i for i in range(first, last + 1) if (m := OPTION.match(body[i].strip())) and m.group(1) == '1'), default=first)
     options, column = [], 0
     for line in body[first:]:
         t = line.strip()

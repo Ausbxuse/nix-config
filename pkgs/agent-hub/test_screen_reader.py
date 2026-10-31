@@ -44,6 +44,17 @@ class QuestionTests(unittest.TestCase):
         self.assertEqual(q['options'][0]['detail'], 'Per task: longest first-success time, plus 10%.')
         self.assertEqual(q['options'][3]['detail'], '')
 
+    def test_a_numbered_list_in_an_earlier_reply_is_not_the_menu(self):
+        screen = '\n'.join([
+            '● Two things would help:', '  1. Set up the build cache', '  2. Cut the hub\'s CPU use', '  3. Plug in Ethernet (hardware, worth knowing)',
+            '✻ Baked for 19s · done 11:01 PM', '❯ focus on 1.', '● One decision here is yours.',
+            ' ←  ☐ Cache  ☐ Hosts  ✔ Submit  →', '', 'Where should timy upload razy\'s builds?', '',
+            '❯ 1. Existing public cache', '  2. A new private cache', '  3. Type something.',
+            '────────────────────────────────', '  4. Chat about this', '', 'Enter to select · Tab/Arrow keys to navigate · Esc to cancel'])
+        q = R.question(screen)
+        self.assertEqual(q['prompt'], "Where should timy upload razy's builds?")
+        self.assertEqual([o['label'] for o in q['options']], ['Existing public cache', 'A new private cache', 'Type something.', 'Chat about this'])
+
     def test_permission_box_with_draft_below(self):
         screen = '\n'.join([
             '╭──────────────────────────────────────╮', '│ Bash command                         │',
