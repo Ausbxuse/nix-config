@@ -126,6 +126,16 @@ in {
       ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT*", ATTR{charge_control_end_threshold}!="${limit}", ATTR{charge_control_end_threshold}="${limit}"
     '';
 
+    # Always on AC. auto-cpufreq's default there is the performance governor,
+    # under which intel_pstate refuses every energy-preference write (EBUSY,
+    # ~300 journal lines a minute). powersave with balance_performance still
+    # turbos for builds and idles cooler and quieter.
+    services.auto-cpufreq.settings.charger = {
+      governor = "powersave";
+      energy_performance_preference = "balance_performance";
+      turbo = "auto";
+    };
+
     # Wi-Fi power save delays packets to an idle station, which shows up as
     # laggy SSH and tailnet replies.
     networking.networkmanager.wifi.powersave = false;
