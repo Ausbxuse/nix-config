@@ -2028,7 +2028,43 @@ def bind_listener(factory, address, stop, retry=1):
     raise InterruptedError('Hub stopped while waiting for its listener address')
 
 
+def sample_stacks(seconds=30, every=0.01):
+    """A look at where the hub spends its time, on request (kill -USR1 <pid>): every thread's stack
+    sampled every 10 ms for 30 s, written as folded stacks, busiest first, to
+    ~/.cache/agent-hub/profile-<time>.txt. Threads waiting (sleep, select, a lock) are counted
+    apart, so what's left is work."""
+    import collections, sys as _sys
+    idle = ('wait', 'select', 'sleep', 'accept', 'recv', 'read', 'poll', 'readline', 'acquire', '_wait_for_tstate_lock', 'get')
+    me = threading.get_ident()
+    names = {t.ident: t.name for t in threading.enumerate()}
+    counts, waiting, taken = collections.Counter(), collections.Counter(), 0
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        for ident, frame in _sys._current_frames().items():
+            if ident == me:
+                continue
+            stack = []
+            while frame is not None:
+                stack.append(f"{Path(frame.f_code.co_filename).name}:{frame.f_code.co_name}:{frame.f_lineno}")
+                frame = frame.f_back
+            key = names.get(ident, str(ident)) + ';' + ';'.join(reversed(stack))
+            (waiting if stack and stack[0].split(':')[1] in idle else counts)[key] += 1
+        taken += 1
+        time.sleep(every)
+    out = Path.home() / '.cache/agent-hub' / f"profile-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open('w') as f:
+        f.write(f"# {taken} samples over {seconds}s; working stacks, then waiting\n")
+        for key, n in counts.most_common():
+            f.write(f"{key} {n}\n")
+        f.write("# waiting\n")
+        for key, n in waiting.most_common(40):
+            f.write(f"{key} {n}\n")
+
+
 def main():
+    import signal
+    signal.signal(signal.SIGUSR1, lambda *_: threading.Thread(target=sample_stacks, name='hub-profile', daemon=True).start())
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)

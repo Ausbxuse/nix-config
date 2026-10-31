@@ -85,6 +85,8 @@ class Mesh:
                     origin TEXT NOT NULL, seq INTEGER NOT NULL, clock INTEGER NOT NULL,
                     kind TEXT NOT NULL, payload TEXT NOT NULL, created REAL NOT NULL,
                     PRIMARY KEY(origin,seq));
+                -- The newest of a kind, read for every snapshot (views).
+                CREATE INDEX IF NOT EXISTS journal_kind_clock ON journal(kind, clock, origin, seq);
                 CREATE TABLE IF NOT EXISTS node_cache(node TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS command_receipts(
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL, status TEXT NOT NULL, result TEXT);
@@ -179,19 +181,23 @@ class Mesh:
                 db.execute('INSERT INTO journal VALUES(?,?,?,?,?,?)', (origin, seq, event['clock'], event['kind'], payload, event['created']))
 
     def views(self):
-        messages, events, marks = [], [], {}
+        # Only the rows shown: the last 60 messages and 35 events (newest first), and every mark.
+        # (The journal keeps every event, tens of thousands on a busy worker; reading and parsing
+        # them all for each snapshot took a tenth of a core.)
+        where = ' AND origin=?' if self.is_worker else ''
+        args = (self.node_id,) if self.is_worker else ()
+
+        def item(row):
+            return {**json.loads(row['payload']), 'id': f"{row['origin']}:{row['seq']}", 'created': row['created']}
+        marks = {}
         with self.hub.db() as db:
-            query = 'SELECT * FROM journal' + (' WHERE origin=?' if self.is_worker else '') + ' ORDER BY clock,origin,seq'
-            for row in db.execute(query, (self.node_id,) if self.is_worker else ()):
+            newest = lambda kind, n: db.execute(f"SELECT * FROM journal WHERE kind=?{where} ORDER BY clock DESC,origin DESC,seq DESC LIMIT {n}", (kind, *args)).fetchall()
+            messages = [item(row) for row in reversed(newest('message', 60))]
+            events = [item(row) for row in newest('event', 35)]
+            for row in db.execute(f"SELECT * FROM journal WHERE kind='mark'{where} ORDER BY clock,origin,seq", args):
                 payload = json.loads(row['payload'])
-                item = {**payload, 'id': f"{row['origin']}:{row['seq']}", 'created': row['created']}
-                if row['kind'] == 'message':
-                    messages.append(item)
-                elif row['kind'] == 'event':
-                    events.append(item)
-                elif row['kind'] == 'mark':
-                    marks.setdefault(payload['agent_id'], {}).update(payload['patch'])
-        return messages[-60:], list(reversed(events[-35:])), marks
+                marks.setdefault(payload['agent_id'], {}).update(payload['patch'])
+        return messages, events, marks
 
     def authority(self):
         if self.is_worker:
