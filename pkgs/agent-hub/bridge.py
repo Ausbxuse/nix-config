@@ -377,11 +377,17 @@ def classify(pane, output):
 
 
 def background_work(screen):
-    """Whether Claude Code says work it started is still going in the background (a shell, a
-    monitor) under its input box: "· 1 shell", "done 1:33 AM · 1 shell still running". A turn
-    that ends then is a progress report, not the end of the work."""
-    tail = [line for line in screen.rstrip().split('\n') if line.strip()][-8:]
-    return any(re.search(r'·\s*\d+\s+(?:shells?|monitors?|background tasks?)\b', line) for line in tail)
+    """Whether the agent's last turn ended with work it started still going in the background:
+    Claude Code's "✻ Baked for 1m 13s · done 1:33 AM · 1 shell still running". A turn that ends
+    so is a progress report, not the end of the work. A shell merely left running ("· 1 shell" in
+    the status line) after a turn that was interrupted, or before a newer message, isn't."""
+    lines = [line for line in screen.rstrip().split('\n') if line.strip()]
+    done = max((i for i, line in enumerate(lines) if re.search(r'·\s*done\b', line)), default=None)
+    if done is None:
+        return False
+    if any('Interrupted' in line or re.match(r'^\s*❯\s*\S', line) for line in lines[done + 1:]):
+        return False
+    return bool(re.search(r'\d+\s+(?:shells?|monitors?|background tasks?)\s+still running', lines[done]))
 
 
 def observation(pane, output):

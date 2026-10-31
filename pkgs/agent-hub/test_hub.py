@@ -388,11 +388,13 @@ class RoutingTests(unittest.TestCase):
         rule = '─' * 40
         report = f"● l15 board: 340 of 360.\n✻ Baked for 1m 13s · done 1:33 AM · 1 shell still running\n{rule}\n❯ \n{rule}\n  -- INSERT -- ⏵⏵ auto mode on · 1 shell · ⧉ index"
         self.assertTrue(bridge.background_work(report))
-        self.assertTrue(bridge.background_work(report.replace('1 shell', '2 monitors')))
+        self.assertTrue(bridge.background_work(report.replace('1 shell still', '2 monitors still')))
         finished = f"● All 360 scored.\n✻ Baked for 2m · done 1:50 AM\n{rule}\n❯ \n{rule}\n  -- INSERT -- ⏵⏵ auto mode on · ⧉ index"
         self.assertFalse(bridge.background_work(finished))
-        # Words in the conversation about shells don't count.
-        self.assertFalse(bridge.background_work("● I opened · 1 shell for you\n" + "\n".join(f"line {i}" for i in range(10))))
+        # A shell left running after a turn that was interrupted: the agent is idle.
+        stopped = f"● Bake 1 finished.\n  Ran 1 shell command\n  ⎿  Interrupted · What should Claude do instead?\n{rule}\n❯ \n{rule}\n  ⏵⏵ auto mode on · 1 shell"
+        self.assertFalse(bridge.background_work(stopped))
+        self.assertFalse(bridge.background_work(report.replace('● l15 board', '✻ Baked for 3s · done 1:20 AM · 1 shell still running\n❯ stop that\n● Stopped').replace('✻ Baked for 1m 13s · done 1:33 AM · 1 shell still running', '✻ Baked for 2s · done 1:34 AM')))
 
     def test_a_claude_menu_is_its_highlighted_choice_not_a_numbered_message(self):
         rule = '─' * 40
