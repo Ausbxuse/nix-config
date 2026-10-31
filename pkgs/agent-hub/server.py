@@ -568,6 +568,10 @@ class Hub:
                         observation = self.native.observe(original['binding'], observation, **({'fresh': True} if fresh else {}))
             except (OSError, ValueError, TypeError, AttributeError):
                 pass
+        # A turn that ends while its shells or monitors still run reports progress ("340 of 360"):
+        # the agent is still at it, so it isn't done (no "finished" for each report).
+        if agent.get('runtime') == 'claude' and agent.get('live') and observation.get('state') in ('done', 'unknown') and bridge.background_work(screen):
+            observation = {**observation, 'state': 'running', 'summary': 'Working in the background', 'completion_confirmed': False}
         return observation
 
     def _local_preview(self, connection, agent, history=False, fresh=False):

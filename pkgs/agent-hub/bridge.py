@@ -376,6 +376,14 @@ def classify(pane, output):
     return state, summary
 
 
+def background_work(screen):
+    """Whether Claude Code says work it started is still going in the background (a shell, a
+    monitor) under its input box: "· 1 shell", "done 1:33 AM · 1 shell still running". A turn
+    that ends then is a progress report, not the end of the work."""
+    tail = [line for line in screen.rstrip().split('\n') if line.strip()][-8:]
+    return any(re.search(r'·\s*\d+\s+(?:shells?|monitors?|background tasks?)\b', line) for line in tail)
+
+
 def observation(pane, output):
     state, summary = classify(pane, output)
     completed = state == 'done' and terminal_completion(output)

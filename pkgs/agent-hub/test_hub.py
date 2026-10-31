@@ -384,6 +384,16 @@ class RoutingTests(unittest.TestCase):
             bridge.choose(self.local, expected, 3)
             self.assertEqual(run.call_args[0][1][-1], "3")
 
+    def test_a_turn_ended_with_shells_still_running_is_progress(self):
+        rule = '─' * 40
+        report = f"● l15 board: 340 of 360.\n✻ Baked for 1m 13s · done 1:33 AM · 1 shell still running\n{rule}\n❯ \n{rule}\n  -- INSERT -- ⏵⏵ auto mode on · 1 shell · ⧉ index"
+        self.assertTrue(bridge.background_work(report))
+        self.assertTrue(bridge.background_work(report.replace('1 shell', '2 monitors')))
+        finished = f"● All 360 scored.\n✻ Baked for 2m · done 1:50 AM\n{rule}\n❯ \n{rule}\n  -- INSERT -- ⏵⏵ auto mode on · ⧉ index"
+        self.assertFalse(bridge.background_work(finished))
+        # Words in the conversation about shells don't count.
+        self.assertFalse(bridge.background_work("● I opened · 1 shell for you\n" + "\n".join(f"line {i}" for i in range(10))))
+
     def test_a_claude_menu_is_its_highlighted_choice_not_a_numbered_message(self):
         rule = '─' * 40
         message = f"❯ 1. don't add the needs you. keep the sessions fixed\n\n● Done.\n\n{rule}\n❯ \n{rule}\n  ? for shortcuts"
