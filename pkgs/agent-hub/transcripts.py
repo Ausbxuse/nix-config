@@ -284,6 +284,44 @@ def claude_lifecycle(record, payload, body, display, state):
     state['lifecycle'] = {**previous, 'source':'claude', 'state':phase}
 
 
+def asked(path, tail=512_000):
+    """The questions a Claude session's AskUserQuestion still waits on, in full (its terminal
+    shows only what fits the pane's height), or [] once answered."""
+    try:
+        with open(path, 'rb') as file:
+            file.seek(max(0, os.fstat(file.fileno()).st_size - tail))
+            data = file.read()
+    except OSError:
+        return []
+    pending = None
+    for line in data.splitlines():
+        if b'AskUserQuestion' not in line and (pending is None or pending[0].encode() not in line):
+            continue
+        try:
+            record = json.loads(line)
+        except (ValueError, UnicodeError):
+            continue
+        content = record.get('message', {}).get('content') if isinstance(record, dict) and isinstance(record.get('message'), dict) else None
+        for part in content if isinstance(content, list) else []:
+            if not isinstance(part, dict):
+                continue
+            if part.get('type') == 'tool_use' and part.get('name') == 'AskUserQuestion' and isinstance(part.get('input'), dict):
+                pending = (str(part.get('id', '')), part['input'].get('questions') or [])
+            elif part.get('type') == 'tool_result' and pending and part.get('tool_use_id') == pending[0]:
+                pending = None
+    return [q for q in pending[1] if isinstance(q, dict) and isinstance(q.get('question'), str)] if pending else []
+
+
+def fuller(question, asked):
+    """The screen's question with its whole text from the log: the one whose choices it shows."""
+    shown = {o.get('label', '').strip() for o in question.get('options', [])}
+    for q in asked:
+        labels = {o.get('label', '').strip() for o in q.get('options', []) if isinstance(o, dict)}
+        if labels and labels <= shown:
+            return {**question, 'prompt': q['question'].strip()}
+    return question
+
+
 class Transcripts:
     def __init__(self, root=None, claude_root=None):
         self.root = Path(root or Path.home() / ".codex/sessions").resolve()

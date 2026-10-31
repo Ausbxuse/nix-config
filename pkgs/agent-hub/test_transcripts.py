@@ -11,6 +11,23 @@ import transcripts
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_a_question_taller_than_the_pane_reads_whole_from_its_log(self):
+        whole = 'Six runs need frames. Each takes an hour on the 8-GPU node. How much should I re-run?'
+        ask = {'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'tool_use', 'id': 'toolu_1', 'name': 'AskUserQuestion',
+               'input': {'questions': [{'question': whole, 'options': [{'label': 'All six'}, {'label': 'One first'}]}]}}]}}
+        screen = {'prompt': 'node. How much should I re-run?', 'options': [{'number': 1, 'label': 'All six'}, {'number': 2, 'label': 'One first'}, {'number': 3, 'label': 'Type something.'}]}
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / 'session.jsonl'
+            log.write_text(json.dumps(ask) + '\n')
+            self.assertEqual(whole, transcripts.fuller(screen, transcripts.asked(log))['prompt'])
+            # Another menu on screen (different choices) keeps what the screen says.
+            other = {'prompt': 'Allow?', 'options': [{'number': 1, 'label': 'Yes'}]}
+            self.assertEqual(other, transcripts.fuller(other, transcripts.asked(log)))
+            # Answered: nothing waits any more.
+            answer = {'type': 'user', 'message': {'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 'toolu_1', 'content': 'All six'}]}}
+            log.write_text(json.dumps(ask) + '\n' + json.dumps(answer) + '\n')
+            self.assertEqual([], transcripts.asked(log))
+
     def test_a_draft_in_the_input_box_is_not_a_message(self):
         rows = transcripts.visible_dialogue('• Done with the build, all tests pass and the APK is published for phones.\n\n› half typed thought about the\n\n  GPT-6 max · ~/src · weekly 90% left\n')
         self.assertEqual('assistant', transcripts.without_draft(rows)[-1][0])

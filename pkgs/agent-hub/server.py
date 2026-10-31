@@ -45,6 +45,7 @@ from projects import project_context, search_agents, ProjectIdentity
 from task_facts import TaskFacts
 from lookup import LookupCache, token_usage
 from federation import Mesh, read_config
+import transcripts
 from transcripts import Transcripts
 from updates import Updates
 from static_assets import assets_for
@@ -610,6 +611,9 @@ class Hub:
         value['facts'] = self.task_facts.build(agent, value)
         # The screen read for people: its question, and the conversation when no log could be.
         value['screen'] = screen_reader.read(text, with_conversation=not original.get('messages'))
+        # A question taller than the pane is cut at the top on screen; its log has all of it.
+        if value['screen'].get('question') and archive_source and agent.get('runtime') == 'claude':
+            value['screen']['question'] = transcripts.fuller(value['screen']['question'], transcripts.asked(archive_source))
         return value
 
     def job(self, job_id, wait=False):
