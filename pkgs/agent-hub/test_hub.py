@@ -398,6 +398,19 @@ class RoutingTests(unittest.TestCase):
                 bridge.queue(self.local, expected, 'x')
             paste.assert_not_called()
 
+    def test_an_answer_in_your_own_words_picks_the_free_text_choice_then_types_it(self):
+        expected = bridge.parse_panes(row(), self.local)[0]
+        screen = "Which colour do you like?\n  1. Red\n  2. Blue\n  3. Type something.\n"
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[screen, "", "", ""]) as run, \
+                patch.object(bridge.time, "sleep"):
+            bridge.answer(self.local, expected, 3, "green, like a forest")
+        calls = [c.args[1] for c in run.call_args_list]
+        self.assertEqual(calls[1], ["send-keys", "-t", expected["pane"], "3"])
+        self.assertEqual(run.call_args_list[2].kwargs["stdin"], "green, like a forest")
+        self.assertEqual(calls[3], ["send-keys", "-t", expected["pane"], "Enter"])
+        with self.assertRaises(bridge.BridgeError):
+            bridge.answer(self.local, expected, 3, "  ")
+
     def test_message_is_stdin_not_shell_code(self):
         expected = bridge.parse_panes(row(), self.local)[0]
         message = "literal `touch /tmp/no` and $(do-not-run)\nnext line"

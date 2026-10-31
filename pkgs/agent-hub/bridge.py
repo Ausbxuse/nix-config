@@ -532,6 +532,20 @@ def choose(connection, agent, number):
     run(connection, ["send-keys", "-t", current["pane"], str(number)])
 
 
+def answer(connection, agent, number, text):
+    """Answers the question the agent is waiting on in the user's own words: picks its
+    free-text choice [number] ("Type something."), which opens a field in its place, then types
+    [text] there and presses Enter."""
+    if not isinstance(text, str) or not text.strip() or len(text) > 12000 or "\x00" in text:
+        raise BridgeError("Answer with between 1 and 12,000 characters.")
+    choose(connection, agent, number)
+    time.sleep(ANSWER_OPENS)
+    paste(connection, verify_agent(connection, agent), text.strip())
+
+
+ANSWER_OPENS = .5
+
+
 def interrupt(connection, agent):
     current = verify_agent(connection, agent)
     state, _ = classify(current, capture(connection, current["pane"], 0))
