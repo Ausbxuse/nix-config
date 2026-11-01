@@ -172,7 +172,8 @@ class ClaudeModels:
         screen = self.screen(connection, agent)
         # /model is an immediate local command, including during a running
         # turn. The empty editor check still protects drafts and other menus.
-        if not empty_editor(agent, screen):
+        # (A grey suggestion in the box, as after most turns, isn't a draft: the styled screen tells.)
+        if not empty_editor(agent, bridge.capture(connection, agent['pane'], 0), bridge.capture_terminal(connection, agent['pane'], 0)):
             raise bridge.BridgeError('Finish the terminal draft or close its menu before changing model settings.')
         bridge.paste(connection, agent, '/model')
         try:
@@ -232,7 +233,7 @@ class ClaudeModels:
                         if effort_cache_confirmation(self.screen(connection, current), change.get('effort')):
                             bridge.run(connection, ['send-keys', '-t', agent['pane'], 'Enter'])
                             cache_accepted = True
-                    elif empty_editor(current, screen):
+                    elif empty_editor(current, bridge.capture(connection, current['pane'], 0), bridge.capture_terminal(connection, current['pane'], 0)):
                         break
                     time.sleep(.04)
                 else:
