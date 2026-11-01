@@ -588,7 +588,11 @@ def choose(connection, agent, number):
     if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= 9:
         raise BridgeError("Choose an option from 1 to 9.")
     current = verify_agent(connection, agent)
-    if not re.search(CHOICE_ROW.format(number), capture(connection, current["pane"], 0)):
+    press(connection, current, number, capture(connection, current["pane"], 0))
+
+
+def press(connection, current, number, screen):
+    if not re.search(CHOICE_ROW.format(number), screen):
         raise BridgeError("That choice is no longer on its screen.")
     run(connection, ["send-keys", "-t", current["pane"], str(number)])
 
@@ -596,15 +600,71 @@ def choose(connection, agent, number):
 def answer(connection, agent, number, text):
     """Answers the question the agent is waiting on in the user's own words: picks its
     free-text choice [number] ("Type something."), which opens a field in its place, then types
-    [text] there and presses Enter."""
+    [text] there and presses Enter. In one taking several, its keys only tick boxes and its field
+    is typed into where the cursor is: the cursor goes to that row, the words are typed, and it
+    goes on (with the boxes ticked) from the Submit row under it."""
     if not isinstance(text, str) or not text.strip() or len(text) > 12000 or "\x00" in text:
         raise BridgeError("Answer with between 1 and 12,000 characters.")
-    choose(connection, agent, number)
+    current = verify_agent(connection, agent)
+    screen = capture(connection, current["pane"], 0)
+    if boxes := several(screen):
+        at, last = boxes
+        if number != last:
+            raise BridgeError("That choice is no longer on its screen.")
+        move(connection, current, number - at)
+        time.sleep(ANSWER_OPENS)
+        paste(connection, current, text.strip(), key='Down')
+        time.sleep(PASTE_SETTLE)
+        run(connection, ["send-keys", "-t", current["pane"], "Enter"])
+        return
+    press(connection, current, number, screen)
     time.sleep(ANSWER_OPENS)
     paste(connection, verify_agent(connection, agent), text.strip())
 
 
 ANSWER_OPENS = .5
+
+SEVERAL_ROW = re.compile(r'^\s*(❯)?\s*(\d+)\.\s+\[[ ✔✓×xX]\]\s')
+SUBMIT_ROW = re.compile(r'^\s*❯\s*Submit$')
+
+
+def several(screen):
+    """A question taking several (Claude's "pick any that apply", each choice in a box) open on
+    [screen]: where its cursor is (a choice's number, or the Submit row under its last box) and its
+    last box's number; None for any other menu."""
+    lines = [re.sub(r'^\s*[│┃]\s?', '', re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', line)).rstrip() for line in screen.split('\n')[-60:]]
+    rows = [(m.group(1), int(m.group(2))) for line in lines if (m := SEVERAL_ROW.match(line))]
+    if not rows:
+        return None
+    last = rows[-1][1]
+    if any(SUBMIT_ROW.match(line) for line in lines):
+        return last + 1, last
+    at = next((n for mark, n in rows if mark), None)
+    if at is None:
+        # Its cursor on a row after the boxes ("Chat about this").
+        mark = next((re.match(r'^\s*❯\s*(\d+)\.', line) for line in reversed(lines) if re.match(r'^\s*❯\s*\d+\.', line)), None)
+        at = int(mark.group(1)) + 1 if mark else last + 1
+    return at, last
+
+
+def move(connection, current, rows):
+    """Moves a menu's cursor [rows] down (up when fewer than none)."""
+    if rows:
+        run(connection, ["send-keys", "-t", current["pane"], *(["Down"] * rows if rows > 0 else ["Up"] * -rows)])
+
+
+def go_on(connection, agent):
+    """Goes on from a question taking several, with the boxes ticked: to its next question, or the
+    review of the answers ("Submit answers"). The Submit row under the boxes does it from anywhere
+    (→ doesn't, from its free-text field)."""
+    current = verify_agent(connection, agent)
+    boxes = several(capture(connection, current["pane"], 0))
+    if not boxes:
+        raise BridgeError("It isn't asking for several any more.")
+    at, last = boxes
+    move(connection, current, last + 1 - at)
+    time.sleep(.2)
+    run(connection, ["send-keys", "-t", current["pane"], "Enter"])
 
 
 # Keys by name, as tmux knows them: Enter, Escape, Tab, the arrows and the like, F1–F12, any of

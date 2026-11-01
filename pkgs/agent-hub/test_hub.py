@@ -384,6 +384,31 @@ class RoutingTests(unittest.TestCase):
             bridge.choose(self.local, expected, 3)
             self.assertEqual(run.call_args[0][1][-1], "3")
 
+    def test_a_question_taking_several_goes_on_from_its_submit_row(self):
+        expected = bridge.parse_panes(row(), self.local)[0]
+        menu = ("←  ☒ Fruit  ✔ Submit  →\n\nWhich fruits?\n\n  1. [ ] Apple\n❯ 2. [✔] Banana\n  3. [ ] Type something\n     Submit\n"
+                + "─" * 40 + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel")
+        self.assertEqual(bridge.several(menu), (2, 3))
+        self.assertEqual(bridge.several(menu.replace("❯ 2.", "  2.").replace("     Submit", "❯    Submit")), (4, 3))
+        self.assertEqual(bridge.several(menu.replace("❯ 2.", "  2.").replace("  4. Chat", "❯ 4. Chat")), (5, 3))
+        self.assertIsNone(bridge.several("How long?\n\n❯ 1. Short\n  2. Long\n\nEnter to select · Esc to cancel"))
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[menu, "", ""]) as run, patch.object(bridge.time, "sleep"):
+            bridge.go_on(self.local, expected)
+            self.assertEqual([c[0][1][3:] for c in run.call_args_list[1:]], [["Down", "Down"], ["Enter"]])
+        # Its own words: typed on its free-text row (the cursor taken there), then on from Submit.
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[menu, "", "", "", ""]) as run, patch.object(bridge.time, "sleep"):
+            bridge.answer(self.local, expected, 3, " Mango ")
+            calls = [c[0][1] for c in run.call_args_list[1:]]
+            self.assertEqual(calls[0][3:], ["Down"])
+            self.assertEqual(run.call_args_list[2][1].get("stdin"), "Mango")
+            self.assertEqual([calls[2][-1], calls[3][-1]], ["Down", "Enter"])
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", return_value=menu):
+            with self.assertRaisesRegex(bridge.BridgeError, "no longer on its screen"):
+                bridge.answer(self.local, expected, 2, "Mango")
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", return_value="● Done.\n› Ask Codex to do anything"):
+            with self.assertRaisesRegex(bridge.BridgeError, "several"):
+                bridge.go_on(self.local, expected)
+
     def test_a_turn_ended_with_shells_still_running_is_progress(self):
         rule = '─' * 40
         report = f"● l15 board: 340 of 360.\n✻ Baked for 1m 13s · done 1:33 AM · 1 shell still running\n{rule}\n❯ \n{rule}\n  -- INSERT -- ⏵⏵ auto mode on · 1 shell · ⧉ index"

@@ -92,6 +92,27 @@ class QuestionTests(unittest.TestCase):
         self.assertEqual(q['prompt'], 'Switch between Claude models. Your pick becomes the default for new sessions. For other names, specify with --model.')
         self.assertEqual([o['detail'] for o in q['options']], ['', ''])
 
+    def test_a_question_taking_several(self):
+        screen = '\n'.join([
+            '─' * 80, '←  ☒ What\'s off  ✔ Submit  →', '',
+            '│ What bothers you most about it? Pick any that apply.', '',
+            '❯ 1. [ ] Hard to find my way', '         Everything is behind the title\'s sheet.',
+            '  2. [✔] Too much at once', '         It feels crowded and busy.',
+            '  3. [ ] Type something', '     Submit', '─' * 80, '  4. Chat about this', '',
+            'Enter to select · ↑/↓ to navigate · Esc to cancel'])
+        q = R.question(screen)
+        self.assertTrue(q['many'])
+        self.assertEqual(q['prompt'], 'What bothers you most about it? Pick any that apply.')
+        self.assertEqual([(o['label'], o.get('checked')) for o in q['options']],
+                         [('Hard to find my way', False), ('Too much at once', True), ('Type something', False), ('Chat about this', None)])
+        # Its Submit row isn't what "Type something" means.
+        self.assertEqual(q['options'][2]['detail'], '')
+
+    def test_one_choice_questions_say_nothing_of_boxes(self):
+        q = R.question('Pick one\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · Esc to cancel')
+        self.assertNotIn('many', q)
+        self.assertNotIn('checked', q['options'][0])
+
     def test_no_choices(self):
         self.assertIsNone(R.question('● Done.\n\n› Ask Codex to do anything\n\n  ? for shortcuts'))
 

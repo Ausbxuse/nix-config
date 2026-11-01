@@ -26,6 +26,7 @@ SHELL_PATH = re.compile(r'^\S?\s*(?:~|/)[\w./~-]*(?:\s+on\s+.*)?$')
 BOX = re.compile(r'^\s*[│┃┌┏╭╰└├┤┬┴┼─━╮╯]')
 OPTION = re.compile(r'^[›❯>↑↓]?\s*(\d+)\.\s+(.+)$')
 HINT = re.compile(r'(?:enter to (?:select|confirm|set)|esc to (?:cancel|interrupt)|q to cancel|tab/arrow keys|↑/↓|to navigate|to adjust)', re.I)
+CHECKBOX = re.compile(r'^\[([ ✔✓×xX])\]\s+(.*)$')
 RULE = re.compile(r'^[─━╌╍═▔▁-]{4,}$')
 PLAIN = re.compile(
     r'^(?:direnv:.*|[›❯>]\s*(?:Ask Codex to do anything|codex|claude)?\s*|>_ OpenAI Codex.*|(?:GPT-|gpt-).+ · .+(?:left|context).*|'
@@ -146,10 +147,17 @@ def question(raw):
             # "Default (recommended) ✔   Sonnet 5 · Efficient…": a choice and, after a wide gap,
             # what it means.
             parts = re.split(r'\s{2,}', m.group(2).strip(), maxsplit=1)
-            options.append({'number': int(m.group(1)), 'label': parts[0], 'detail': parts[1] if len(parts) > 1 else ''})
+            option = {'number': int(m.group(1)), 'label': parts[0], 'detail': parts[1] if len(parts) > 1 else ''}
+            # "[✔] Banana": a question taking several, its box ticked or not.
+            if box := CHECKBOX.match(option['label']):
+                option['label'], option['checked'] = box.group(2), box.group(1) != ' '
+            options.append(option)
             # Where its label starts: a description under it is indented at least that far.
             column = len(line) - len(line.lstrip()) + (line.lstrip().find(m.group(2)) if m.group(2) in line.lstrip() else 0)
         elif not t or RULE.match(t) or BOX.match(line):
+            continue
+        elif t == 'Submit' and any('checked' in o for o in options):
+            # Under the choices of one taking several: the row that goes on (→ does the same).
             continue
         elif HINT.search(t) or MARKER.match(t) or len(line) - len(line.lstrip()) < column:
             # Past the choices: the menu's own notes and keys.
@@ -176,7 +184,10 @@ def question(raw):
             joined[-1] += ' ' + t
         else:
             joined.append(t)
-    return {'prompt': '\n'.join(joined), 'options': unique}
+    out = {'prompt': '\n'.join(joined), 'options': unique}
+    if any('checked' in o for o in unique):
+        out['many'] = True
+    return out
 
 
 def plain(screen):
