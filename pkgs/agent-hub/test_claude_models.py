@@ -191,6 +191,17 @@ class ClaudeModelTests(unittest.TestCase):
         self.assertFalse(empty_editor({**self.term.agent,'cursor_x':5},self.term.screen()))
         self.assertFalse(empty_editor({**self.term.agent,'in_mode':'1'},self.term.screen()))
 
+    def test_the_current_picker_scrolls_and_cancels_with_q(self):
+        screen = '\n'.join(['   Select model', '   Switch between Claude models.',
+                            '     1.  Default (recommended)  Opus 5.5 · Best for everyday, complex tasks',
+                            '   ❯ 2.  Haiku 5.5 ✔            Fastest for quick answers',
+                            '   ↓ 3.  Opus 4.8               Best for everyday, complex tasks', '      … +3 models',
+                            '   ◐ Medium effort (default) ←/→ to adjust',
+                            '   Enter to set as default · s to use this session only · q to cancel'])
+        value = picker(screen)
+        self.assertEqual([row['id'] for row in value['rows']], ['Default (recommended)', 'Haiku 5.5', 'Opus 4.8'])
+        self.assertEqual((value['selected'], value['effort']), ('Haiku 5.5', 'medium'))
+
     def test_a_grey_suggestion_in_the_box_is_not_a_draft(self):
         screen = self.term.screen()
         row = screen.splitlines()[2]

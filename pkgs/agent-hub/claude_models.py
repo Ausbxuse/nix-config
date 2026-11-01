@@ -21,10 +21,12 @@ def picker(screen):
     if not headings:
         return None
     body = screen[headings[-1].end():]
-    if not re.search(r'Enter to set as default\s*·\s*s to use this session only\s*·\s*Esc to cancel', body):
+    # (Its last key was Esc, now q.)
+    if not re.search(r'Enter to set as default\s*·\s*s to use this session only\s*·\s*(?:Esc|q) to cancel', body):
         return None
     rows = []
-    for match in re.finditer(r'^\s*(❯\s*)?(\d+)\.\s+(.+?)(?:\s{2,}(.*))?$', body, re.M):
+    # (A row at the edge of a list that scrolls has ↑ or ↓ before its number.)
+    for match in re.finditer(r'^\s*(❯\s*)?(?:[↑↓]\s*)?(\d+)\.\s+(.+?)(?:\s{2,}(.*))?$', body, re.M):
         label = match[3].replace('✔', '').strip()
         rows.append({'id':label, 'label':label, 'number':int(match[2]), 'selected':bool(match[1]),
                      'current':'✔' in match[3], 'description':match[4] or ''})
