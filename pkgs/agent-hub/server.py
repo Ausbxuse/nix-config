@@ -569,10 +569,12 @@ class Hub:
                         observation = self.native.observe(original['binding'], observation, **({'fresh': True} if fresh else {}))
             except (OSError, ValueError, TypeError, AttributeError):
                 pass
-        # A turn that ends while its shells or monitors still run reports progress ("340 of 360"):
-        # the agent is still at it, so it isn't done (no "finished" for each report).
+        # A turn that ends while its shells or monitors still run: the agent isn't working (it
+        # waits, and a shell may be a server that never ends: it showed as working for good), but
+        # the turn is a progress report ("340 of 360"), not the end of the work, so no "finished"
+        # for each one (done, its completion not confirmed: no handoff).
         if agent.get('runtime') == 'claude' and agent.get('live') and observation.get('state') in ('done', 'unknown') and bridge.background_work(screen):
-            observation = {**observation, 'state': 'running', 'summary': 'Working in the background', 'completion_confirmed': False}
+            observation = {**observation, 'state': 'done', 'summary': 'Waiting on its background work', 'completion_confirmed': False, 'activity_confirmed': False}
         # Writing its reply, Claude Code hides its spinner: no activity, no completion, just the
         # prompt ('unknown'). Its log says the turn is still open and the screen doesn't show it
         # interrupted (a log can stay open after one): it's still working.
