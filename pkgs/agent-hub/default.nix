@@ -37,6 +37,7 @@
     fileset = lib.fileset.unions [
       ./server.py
       ./bridge.py
+      ./rewind.py
       ./branching.py
       ./agent_switch.py
       ./codex_account.py

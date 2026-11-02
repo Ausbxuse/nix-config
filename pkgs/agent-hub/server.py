@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, urlparse
 
 import screen_reader
 import bridge
+import rewind
 import terminal_queue
 import coordination
 from media import read_video
@@ -946,6 +947,9 @@ class Hub:
                 elif kind == "choose":
                     bridge.choose(config, agent, value.get('number'))
                     text = f'Chose {value.get("number")} for {agent["title"]} on {config["label"]}'
+                elif kind == "edit_last":
+                    rewind.edit_last(config, agent, value.get('was'), value.get('message'))
+                    text = f'Edited the last message to {agent["title"]} on {config["label"]}'
                 elif kind == "next":
                     bridge.go_on(config, agent)
                     text = f'Went on from the question to {agent["title"]} on {config["label"]}'
@@ -1547,7 +1551,7 @@ Unused strings are empty except instruction_source, which is current or previous
             if method == 'worker/execute':
                 with self.action_lock:
                     action = value.get('action', {})
-                    if action.get('type') not in ('send', 'queue', 'queue_update', 'queue_delete', 'approval_respond', 'interrupt', 'choose', 'answer', 'next', 'keys', 'launch', 'fork', 'rename', 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
+                    if action.get('type') not in ('send', 'queue', 'queue_update', 'queue_delete', 'approval_respond', 'interrupt', 'choose', 'answer', 'next', 'edit_last', 'keys', 'launch', 'fork', 'rename', 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
                         raise bridge.BridgeError('Unsupported worker command')
                     return self.mesh.execute_once(action.get('command_id'), action, lambda: self.local_action(action))
             raise bridge.BridgeError('Worker nodes expose local observations and commands only')
@@ -1597,7 +1601,7 @@ Unused strings are empty except instruction_source, which is current or previous
                 if value.get("authority") != authority or peer != authority["owner"]:
                     raise bridge.BridgeError("Stale supervisor authority; command rejected")
                 action = value.get("action", {})
-                if action.get("type") not in ("send", "queue", 'queue_update', 'queue_delete', 'approval_respond', "interrupt", 'choose', 'answer', 'next', 'keys', "launch", "fork", "rename", 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
+                if action.get("type") not in ("send", "queue", 'queue_update', 'queue_delete', 'approval_respond', "interrupt", 'choose', 'answer', 'next', 'edit_last', 'keys', "launch", "fork", "rename", 'model_options', 'model_set', 'handoff_start', 'account_login', 'account_cancel'):
                     raise bridge.BridgeError("Unsupported peer command")
                 return self.mesh.execute_once(action.get("command_id"), action, lambda: self.local_action(action))
         raise bridge.BridgeError("Unknown peer operation")
