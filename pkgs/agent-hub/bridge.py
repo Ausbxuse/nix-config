@@ -19,6 +19,8 @@ FIELDS = {
 }
 FORMAT = SEP.join("#{" + value + "}" for value in FIELDS.values())
 RUNTIMES = ("codex", "claude", "hermes", "opencode", "aider")
+# The tmux session new agents open in, each as a window of it.
+AGENT_SESSION = "main"
 # Match the CLI error marker and reason, independently of the suggested next
 # step. Narrow panes can wrap any space in the sentence, including before 'at'.
 CAPACITY = re.compile(
@@ -212,8 +214,23 @@ def runtime_for(command):
     return next((kind for kind in RUNTIMES if kind in command.lower()), None)
 
 
+SHELLS = ("sh", "bash", "zsh", "fish", "dash")
+
+
+def shell_children(connection):
+    """Each process's children's names, by parent PID, on the connection's host. A shell started as
+    `zsh -lc 'claude …; exec zsh'` stays in front of the agent it runs, so its pane's current command
+    reads zsh while Claude is at work in it; what runs under that shell tells."""
+    children = {}
+    for line in run_command(connection, ["ps", "-e", "-o", "ppid=,comm="]).splitlines():
+        parent, _, name = line.strip().partition(" ")
+        children.setdefault(parent, []).append(name.strip())
+    return children
+
+
 def parse_panes(output, connection):
     found = {}
+    children = None
     for line in output.splitlines():
         values = line.split(SEP)
         if len(values) != len(FIELDS):
@@ -222,6 +239,14 @@ def parse_panes(output, connection):
         if pane["role"] in ("terminal", "editor", "supervisor"):
             continue
         runtime = runtime_for(pane["command"])
+        if not runtime and pane["command"] in SHELLS:
+            # (Looked up once a pass, and only when a shell is in front somewhere.)
+            if children is None:
+                try:
+                    children = shell_children(connection)
+                except BridgeError:
+                    children = {}
+            runtime = next(filter(None, map(runtime_for, children.get(pane["pid"], []))), None)
         if not runtime and pane["role"] != "agent":
             continue
         if pane["primary"] and pane["primary"] != pane["pane"]:
@@ -733,9 +758,16 @@ def launch(connection, cwd, prompt, runtime="codex", codex_model="", resume_id="
         for path in image_paths:
             command += ['--image', path]
     command += ["--", prompt]
-    name = "hub-" + uuid.uuid4().hex[:8]
-    result = run(connection, ["new-session", "-d", "-s", name, "-n", cwd.rstrip("/").split("/")[-1],
-                              "-c", cwd, "-P", "-F", "#{pane_id}", shlex.join(command)])
+    # Each new agent is a window of one session (AGENT_SESSION), not a session of its own.
+    name = AGENT_SESSION
+    window = cwd.rstrip("/").split("/")[-1] or "agent"
+    try:
+        run(connection, ["has-session", "-t", "=" + name])
+        result = run(connection, ["new-window", "-d", "-t", "=" + name + ":", "-n", window,
+                                  "-c", cwd, "-P", "-F", "#{pane_id}", shlex.join(command)])
+    except BridgeError:
+        result = run(connection, ["new-session", "-d", "-s", name, "-n", window,
+                                  "-c", cwd, "-P", "-F", "#{pane_id}", shlex.join(command)])
     pane = result.strip()
     run(connection, ["set-option", "-p", "-t", pane, "@pane-role", "agent", ";",
                      "set-option", "-w", "-t", pane, "@agent-pane", pane, ";",
