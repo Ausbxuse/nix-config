@@ -112,7 +112,8 @@ def edit_last(connection, agent, was, text):
     keys(connection, pane, 'C-c')
     if not wait(connection, pane, lambda s: claude_models.empty_editor(bridge.verify_agent(connection, agent), bridge.capture(connection, pane, 0), bridge.capture_terminal(connection, pane, 0)), 2):
         raise bridge.BridgeError("The conversation went back, but the old words stayed in its box; send the new ones from its terminal.")
-    if inserting and '-- INSERT --' not in screen(connection, pane):
+    # (Out of it twice over, a moment apart: never an "i" typed into a box that was only being redrawn.)
+    if inserting and '-- INSERT --' not in screen(connection, pane) and not time.sleep(.15) and '-- INSERT --' not in screen(connection, pane):
         keys(connection, pane, 'i')
         wait(connection, pane, lambda s: '-- INSERT --' in s, 1)
     bridge.paste(connection, bridge.verify_agent(connection, agent), text.strip())

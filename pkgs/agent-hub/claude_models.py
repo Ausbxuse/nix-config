@@ -175,6 +175,8 @@ class ClaudeModels:
         # (A grey suggestion in the box, as after most turns, isn't a draft: the styled screen tells.)
         if not empty_editor(agent, bridge.capture(connection, agent['pane'], 0), bridge.capture_terminal(connection, agent['pane'], 0)):
             raise bridge.BridgeError('Finish the terminal draft or close its menu before changing model settings.')
+        # (Vim mode: typing, it's in insert mode; closing the picker leaves it, so it's put back.)
+        inserting = '-- INSERT --' in screen
         bridge.paste(connection, agent, '/model')
         try:
             value = self.wait_picker(connection, agent)
@@ -251,3 +253,10 @@ class ClaudeModels:
         finally:
             if picker(self.screen(connection, agent)):
                 bridge.run(connection, ['send-keys', '-t', agent['pane'], 'Escape'])
+            if inserting:
+                end = time.monotonic() + 1
+                while time.monotonic() < end and picker(self.screen(connection, agent)):
+                    time.sleep(.05)
+                # (Out of it twice over, a moment apart: never an "i" typed into a box that was only being redrawn.)
+                if '-- INSERT --' not in self.screen(connection, agent) and not time.sleep(.15) and '-- INSERT --' not in self.screen(connection, agent):
+                    bridge.run(connection, ['send-keys', '-t', agent['pane'], 'i'])
