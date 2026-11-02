@@ -20,4 +20,13 @@
 
   # Start the user services (Valkrie, agent hub, tmux) at boot; nobody logs in.
   users.users.${username}.linger = true;
+
+  # gpu-004 is a shared work machine: timy connects to it (voice tunnel, hub
+  # federation), never the reverse. The headscale policy refuses it already;
+  # tailscale0 is trusted here, so this holds if that policy ever loosens.
+  # Only new connections are dropped, so replies to timy's own still pass.
+  networking.firewall.extraCommands = ''
+    iptables -I nixos-fw -i tailscale0 -s 100.64.0.8 -m conntrack --ctstate NEW -j DROP
+    ip6tables -I nixos-fw -i tailscale0 -s fd7a:115c:a1e0::8 -m conntrack --ctstate NEW -j DROP
+  '';
 }
