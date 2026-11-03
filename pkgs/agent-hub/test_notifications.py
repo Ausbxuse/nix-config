@@ -397,6 +397,17 @@ class WatchTests(unittest.TestCase):
         self.tick(1); self.tick(30)
         self.assertIn('exited', [item['kind'] for item in self.items()])
 
+    def test_disappeared_agent_is_saved_as_missing_and_announced_once(self):
+        self.tick(10)
+        self.snapshot['agents'] = []
+        self.watch.emit = Mock(wraps=self.watch.emit)
+        for _ in range(5):
+            self.tick(1)
+        self.assertEqual(self.watch.emit.call_count, 1)
+        with self.hub.db() as db:
+            row = db.execute("SELECT value FROM watch_observations WHERE id='agent:gpu:a'").fetchone()
+        self.assertTrue(json.loads(row['value'])['missing'])
+
     def test_worker_cannot_watch_or_publish_controller_updates(self):
         self.hub.mesh = Mock(is_worker=True)
         self.watch.emit('x','done','Private update')
