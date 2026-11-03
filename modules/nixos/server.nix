@@ -1,5 +1,6 @@
 # Always-on laptop server: never sleeps, unlocks LUKS through the TPM, keeps an
-# initrd SSH rescue path, and exports fan/temperature/mic-loudness metrics.
+# initrd SSH rescue path, and exports fan/temperature/mic-loudness and SSD
+# health metrics.
 #
 # One-time setup per host (see docs/server-hosts.md):
 #   sudo install -d -m 700 /etc/secrets/initrd
@@ -211,7 +212,18 @@ in {
       enabledCollectors = ["hwmon" "thermal_zone" "textfile"];
       extraFlags = ["--collector.textfile.directory=${micDir}"];
     };
-    networking.firewall.interfaces.tailscale0.allowedTCPPorts = [config.services.prometheus.exporters.node.port];
+    networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
+      config.services.prometheus.exporters.node.port
+      config.services.prometheus.exporters.smartctl.port
+    ];
+
+    # SSD wear, data written and spare blocks without root (smartctl needs it):
+    # curl http://<host>:9633/metrics
+    services.prometheus.exporters.smartctl.enable = true;
+
+    # The hard-lockup detector wakes every core all the time; a hung server
+    # shows anyway, by dropping off the tailnet.
+    boot.kernel.sysctl."kernel.nmi_watchdog" = 0;
 
     users.groups.server-mic = {};
     users.users.server-mic = {
