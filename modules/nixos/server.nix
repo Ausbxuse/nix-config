@@ -185,6 +185,13 @@ in {
     };
     boot.initrd.systemd.users.root.shell = "/bin/systemd-tty-ask-password-agent";
 
+    # The initrd's networkd leaves /run/systemd/netif/state ("OPER_STATE=off")
+    # behind. NetworkManager runs the real network and never updates it, so
+    # timesyncd believed it was offline and never synced the clock.
+    systemd.services.systemd-timesyncd.serviceConfig.ExecStartPre =
+      lib.mkIf (!config.systemd.network.enable)
+      ["+${pkgs.coreutils}/bin/rm -rf /run/systemd/netif"];
+
     # The bootloader install copies this key into the initrd secrets and fails
     # if it is missing. Activation also runs inside nixos-install before the
     # bootloader, so new hosts get one; an existing host moving onto this
