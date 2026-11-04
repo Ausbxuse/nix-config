@@ -217,6 +217,7 @@ with lib.hm.gvariant; {
 
     "org/gnome/mutter/keybindings" = {
       cancel-input-capture = ["<Super><Shift>Escape"];
+      switch-monitor = ["XF86Display"]; # <Super>p is the screenshot UI
       toggle-tiled-left = ["<Super>Left"];
       toggle-tiled-right = ["<Super>Right"];
     };
@@ -591,7 +592,7 @@ with lib.hm.gvariant; {
       shift-overview-down = ["<Super><Alt>Down"];
       toggle-overview = ["<Super>d"];
       shift-overview-up = ["<Super><Alt>Up"];
-      show-screenshot-ui = ["Print"];
+      show-screenshot-ui = ["Print" "<Super>p"];
       toggle-application-view = [];
       toggle-message-tray = [];
       toggle-quick-settings = [];
