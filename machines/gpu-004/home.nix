@@ -2,6 +2,9 @@
   # 27" 4K at ~70 cm: size 10 gives a 2.3 mm x-height (~0.19°), 225 columns.
   programs.ghostty.settings.font-size = lib.mkForce 10;
 
+  # Keep the locally installed Qbing companion enabled across home switches.
+  dconf.settings."org/gnome/shell".enabled-extensions = lib.mkAfter ["cstimer-companion@local"];
+
   # DP-4 (Dell S2725QC) on the left, HDMI-2 (MSI MP273U) rotated right beside it.
   my.gnome.wallpaperMonitors = [
     {
