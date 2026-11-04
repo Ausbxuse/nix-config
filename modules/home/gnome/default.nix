@@ -24,6 +24,36 @@
             '"session-modes": ["user", "unlock-dialog"], "shell-version": ['
       '';
   });
+  # Restore Forge's windows.json from its bundled defaults when it is missing,
+  # empty or invalid, and make sure the wl-clipboard float rule is in it.
+  forgeWindowsConfig = pkgs.writers.writePython3 "forge-windows-config" {} ''
+    import json
+    import os
+    import sys
+
+    path = sys.argv[1]
+    default = "${pkgs.gnomeExtensions.forge}/share/gnome-shell/extensions/forge@jmmaranan.com/config/windows.json"  # noqa: E501
+    rule = {"wmClass": "wl-clipboard", "mode": "float"}
+
+    try:
+        with open(path) as f:
+            config = json.load(f)
+        seeded = False
+    except (OSError, ValueError):
+        with open(default) as f:
+            config = json.load(f)
+        seeded = True
+
+    overrides = config.setdefault("overrides", [])
+    if seeded or rule not in overrides:
+        if rule not in overrides:
+            overrides.append(rule)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as f:
+            json.dump(config, f, indent=4)
+        os.replace(path + ".tmp", path)
+        print("restored" if seeded else "added float rule")
+  '';
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     astra-monitor
     blur-my-shell
@@ -139,23 +169,24 @@ in {
   # GNOME has no wlr-data-control, so wl-copy/wl-paste map a tiny helper
   # window (app_id "wl-clipboard") to take focus; Forge tiled it on every copy
   # or paste, making the layout flash. Forge rewrites windows.json itself, so
-  # merge a float rule into it instead of owning the file.
+  # merge a float rule into it instead of owning the file. When Forge recreates
+  # its config dir it leaves windows.json empty, and an empty file puts the
+  # extension in ERROR for the whole session, so the file is also checked at
+  # every login, before GNOME Shell loads extensions.
+  systemd.user.services.forge-windows-config = {
+    Unit = {
+      Description = "Keep Forge's windows.json valid";
+      Before = ["gnome-session-manager.target"];
+    };
+    Service = {
+      Type = "oneshot";
+      ExecStart = "${forgeWindowsConfig} %h/.config/forge/config/windows.json";
+    };
+    Install.WantedBy = ["gnome-session-pre.target"];
+  };
+
   home.activation.forgeFloatWlClipboard = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    run ${pkgs.python3}/bin/python3 - "$HOME/.config/forge/config/windows.json" <<'EOF'
-    import json, os, sys
-    path = sys.argv[1]
-    if not os.path.exists(path):
-        sys.exit(0)  # Forge writes its defaults on first start; rerun later.
-    with open(path) as f:
-        config = json.load(f)
-    rule = {"wmClass": "wl-clipboard", "mode": "float"}
-    if rule not in config.setdefault("overrides", []):
-        config["overrides"].append(rule)
-        with open(path + ".tmp", "w") as f:
-            json.dump(config, f, indent=4)
-        os.replace(path + ".tmp", path)
-        print("added")
-    EOF
+    run ${forgeWindowsConfig} "$HOME/.config/forge/config/windows.json"
     # Forge caches overrides; bumping this key makes it reload them live.
     key=/org/gnome/shell/extensions/forge/window-overrides-reload-trigger
     count=$(${pkgs.dconf}/bin/dconf read $key | ${pkgs.gawk}/bin/awk '{print $NF}')
