@@ -106,6 +106,11 @@
 in {
   programs.tmux = {
     enable = true;
+    # Rounded pane corners, and junctions next to the active pane drawn as its
+    # own corner (╰) instead of a tee (┴) with an active-coloured stub.
+    package = pkgs.tmux.overrideAttrs (old: {
+      patches = (old.patches or []) ++ [./rounded-borders.patch];
+    });
   };
 
   home.activation.configureClaudeHooks = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -129,15 +134,22 @@ in {
     Unit = {
       Description = "tmux default session (detached)";
       Documentation = "man:tmux(1)";
+      # Restarting would kill every session; a new tmux binary or unit takes
+      # effect at the next login instead.
+      X-RestartIfChanged = false;
     };
+    # Oneshot that only starts a server when none is running, and never kills
+    # one: as Type=forking, starting it beside a running server exited at once,
+    # so systemd ran ExecStop's kill-server. Logout ends the server anyway.
     Service = {
-      Type = "forking";
+      Type = "oneshot";
+      RemainAfterExit = true;
       Environment = "TMUX_TMPDIR=%t";
-      ExecStart = "${config.programs.tmux.package}/bin/tmux new-session -d";
-      ExecStop = [
-        "${builtins.dirOf pkgs.tmuxPlugins.resurrect.rtp}/scripts/save.sh"
-        "${config.programs.tmux.package}/bin/tmux kill-server"
-      ];
+      ExecStart = "${pkgs.writeShellScript "tmux-start" ''
+        ${config.programs.tmux.package}/bin/tmux has-session 2>/dev/null ||
+          exec ${config.programs.tmux.package}/bin/tmux new-session -d
+      ''}";
+      ExecStop = "${builtins.dirOf pkgs.tmuxPlugins.resurrect.rtp}/scripts/save.sh";
       KillMode = "process";
     };
     Install.WantedBy = ["default.target"];

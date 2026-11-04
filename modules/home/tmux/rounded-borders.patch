@@ -1,0 +1,75 @@
+--- a/screen-redraw.c
++++ b/screen-redraw.c
+@@ -1209,6 +1209,59 @@
+ 	gc->attr |= GRID_ATTR_CHARSET;
+ }
+ 
++/*
++ * At a junction where other borders meet the active pane's border, return the
++ * cell type of the active pane's own border there, so it is drawn as that
++ * pane's corner or edge rather than a tee with a stray active-coloured arm.
++ */
++static int
++redraw_get_active_cell_type(struct redraw_draw_ctx *dctx,
++    struct window_pane *wp, u_int x, u_int y, int cell_type)
++{
++	struct redraw_scene	*scene = dctx->scene;
++	int			 wx, wy, left, right, top, bottom, mask = 0;
++
++	if (cell_type < CELL_LRD || cell_type > CELL_LRUD)
++		return (cell_type);
++	if (dctx->flags & REDRAW_STATUS_TOP)
++		y -= dctx->status_lines;
++	wx = (int)scene->ox + (int)x;
++	wy = (int)scene->oy + (int)y;
++
++	left = wp->xoff - 1;
++	right = wp->xoff + (int)wp->sx;
++	top = wp->yoff - 1;
++	bottom = wp->yoff + (int)wp->sy;
++	if ((wy == top || wy == bottom) && wx >= left && wx <= right) {
++		if (wx > left)
++			mask |= REDRAW_BORDER_L;
++		if (wx < right)
++			mask |= REDRAW_BORDER_R;
++	}
++	if ((wx == left || wx == right) && wy >= top && wy <= bottom) {
++		if (wy > top)
++			mask |= REDRAW_BORDER_U;
++		if (wy < bottom)
++			mask |= REDRAW_BORDER_D;
++	}
++	if (mask == 0)
++		return (cell_type);
++	return (redraw_get_cell_type(mask));
++}
++
++/* Draw single-line border corners with rounded characters. */
++static void
++redraw_round_border_corner(struct window_pane *wp, int cell_type,
++    struct grid_cell *gc)
++{
++	if (window_pane_get_pane_lines(wp) != PANE_LINES_SINGLE)
++		return;
++	if (cell_type < CELL_RD || cell_type > CELL_LU)
++		return;
++	gc->attr &= ~GRID_ATTR_CHARSET;
++	utf8_copy(&gc->data, tty_acs_rounded_borders(cell_type));
++}
++
+ /* Draw a border span. */
+ static void
+ redraw_draw_border_span(struct redraw_draw_ctx *dctx,
+@@ -1244,7 +1297,12 @@
+ 		}
+ 	} else {
+ 		window_pane_get_border_style(wp, c, &gc);
++		if (wp == dctx->active && n == 1) {
++			cell_type = redraw_get_active_cell_type(dctx, wp, x, y,
++			    cell_type);
++		}
+ 		window_pane_get_border_cell(wp, cell_type, &gc);
++		redraw_round_border_corner(wp, cell_type, &gc);
+ 	}
+ 
+ 	if (span->data.type == REDRAW_SPAN_BORDER &&
