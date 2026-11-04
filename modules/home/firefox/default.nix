@@ -3,12 +3,6 @@
   pkgs,
   ...
 }: {
-  # Keep terminal word-deletion muscle memory from closing browser tabs.
-  # Firefox's native shortcut editor (about:keyboard) uses empty entries to unbind keys.
-  home.file."${config.programs.firefox.configPath}/${config.programs.firefox.profiles.betterfox.path}/customKeys.json".text = builtins.toJSON {
-    key_close = {};
-  };
-
   programs = {
     firefox = {
       enable = true;
