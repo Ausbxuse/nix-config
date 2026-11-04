@@ -212,6 +212,24 @@ class ClaudeModelTests(unittest.TestCase):
         self.assertFalse(empty_editor(self.term.agent, suggested, styled('Try "refactor AgentHub.kt"')), 'typed text')
         self.assertFalse(empty_editor(self.term.agent, suggested, styled('\x1b[2mTry\x1b[22m "refactor"')), 'partly typed')
 
+    def test_a_message_is_not_pasted_after_what_is_in_the_box(self):
+        # A stray "a" in the box (vim's normal mode keeps the cursor on it, at column 2) made
+        # "did the toaster…" arrive as "adid the toaster…".
+        agent = {**self.term.agent, 'runtime':'claude'}
+        for draft, sent in (('a', False), ('', True)):
+            self.term.draft = draft
+            with self.subTest(draft=draft), patch.object(bridge, 'verify_agent', return_value=agent), \
+                    patch.object(bridge, 'classify', return_value=('idle', '')), \
+                    patch.object(bridge, 'capture', side_effect=lambda *_: self.term.screen()), \
+                    patch.object(bridge, 'capture_terminal', side_effect=lambda *_: self.term.screen()), \
+                    patch.object(bridge, 'paste') as paste:
+                if sent:
+                    bridge.send({}, agent, 'did the toaster')
+                else:
+                    with self.assertRaisesRegex(bridge.BridgeError, 'draft'):
+                        bridge.send({}, agent, 'did the toaster')
+                self.assertEqual(paste.called, sent)
+
 
 if __name__ == '__main__':
     unittest.main()

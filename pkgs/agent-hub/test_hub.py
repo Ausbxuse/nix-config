@@ -450,7 +450,8 @@ class RoutingTests(unittest.TestCase):
         expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
         menu = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
         closed = f"⎿ Interrupted\n{'─' * 40}\n❯ \n{'─' * 40}"
-        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', side_effect=[menu, closed]), \
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', side_effect=[menu, closed, closed]), \
+                patch.object(bridge, 'capture_terminal', return_value=closed), patch('claude_models.empty_editor', return_value=True), \
                 patch.object(bridge, 'classify', return_value=('waiting', '')), patch.object(bridge, 'run') as run, patch.object(bridge, 'paste') as paste:
             bridge.send(self.local, expected, 'do it differently')
             self.assertEqual(run.call_args_list[0][0][1][-1], 'Escape')

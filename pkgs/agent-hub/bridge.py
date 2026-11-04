@@ -520,10 +520,17 @@ def send(connection, agent, message):
     # A message sent while Claude asks: the menu is closed first, and the message is the answer.
     if state == "waiting" and current.get("runtime") == "claude":
         dismiss_menu(connection, current)
+        current = verify_agent(connection, agent)
     elif state == "waiting":
         raise BridgeError("This agent has an interactive decision. Resolve it in tmux first.")
     if not isinstance(message, str) or not message.strip() or len(message) > 12000 or "\x00" in message:
         raise BridgeError("Send a message between 1 and 12,000 characters.")
+    # A paste goes in after whatever is in Claude's box: a stray key left there ("a") would
+    # become the start of the message. Only an empty box takes it, as for a queued message.
+    if current.get("runtime") == "claude":
+        from claude_models import empty_editor
+        if not empty_editor(current, capture(connection, current["pane"], 0), capture_terminal(connection, current["pane"], 0)):
+            raise BridgeError("This agent has a terminal draft. Clear it before sending.")
     paste(connection, current, message)
 
 
