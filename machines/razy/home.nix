@@ -34,6 +34,10 @@ in {
     stopOnBattery = false;
   };
 
+  # Server mode on AC (see razy-inhibit-lid-suspend-while-docked): never
+  # suspend when idle while plugged in; on battery, as everywhere else.
+  dconf.settings."org/gnome/settings-daemon/plugins/power".sleep-inactive-ac-type = lib.mkForce "nothing";
+
   programs.firefox.profiles.betterfox.extraConfig = lib.mkAfter ''
     user_pref("browser.uidensity", 1);
   '';

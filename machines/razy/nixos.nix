@@ -275,9 +275,11 @@ in {
     '';
   };
 
-  # Avoid long suspend/resume cycles when a manually-started Ollama model is
-  # still resident in NVIDIA VRAM.
-  systemd.services.razy-unload-ollama-before-sleep = lib.mkIf config.home-manager.users.${const.username}.services.ollama-agent.enable {
+  # Avoid long suspend/resume cycles when an Ollama model is still resident
+  # in NVIDIA VRAM (LESLEY's Gemma, kept loaded by the hand-made user service
+  # ~/.config/systemd/user/ollama.service, or ollama-agent's). Without a
+  # server on the port it does nothing.
+  systemd.services.razy-unload-ollama-before-sleep = {
     description = "Unload Ollama GPU models before system sleep";
     before = ["sleep.target"];
     wantedBy = ["sleep.target"];
@@ -337,8 +339,8 @@ in {
       }
     });
   '';
-  # Only the docking service should suppress lid sleep, including when
-  # logind detects a dock or multiple displays while running on battery.
+  # Only the server-mode service below should suppress lid sleep, including
+  # when logind detects a dock or multiple displays while running on battery.
   environment.etc."systemd/logind.conf.d/50-razy-lid.conf".text = ''
     [Login]
     HandleLidSwitch=suspend
@@ -346,11 +348,13 @@ in {
     HandleLidSwitchDocked=suspend
   '';
 
-  # Keep a closed-lid dock usable, but only while it is actually powered and
-  # driving an external display.  The inhibitor is removed immediately when
-  # either condition goes away, preserving the normal portable lid behavior.
+  # Server mode on AC power: razy serves LESLEY's model (Gemma on Ollama) to
+  # timy, so a closed lid doesn't suspend it while it's plugged in (with or
+  # without an external display). The inhibitor is removed as soon as the
+  # power goes, restoring the normal portable lid behavior on battery. Idle
+  # suspend on AC is off too (home.nix and the GDM profile below).
   systemd.services.razy-inhibit-lid-suspend-while-docked = {
-    description = "Inhibit lid suspend while on AC with an external monitor";
+    description = "Inhibit lid suspend while on AC power (server mode)";
     wantedBy = ["multi-user.target"];
     after = ["systemd-logind.service"];
     path = with pkgs; [
@@ -375,18 +379,6 @@ in {
         return 1
       }
 
-      external_monitor_connected() {
-        for status in /sys/class/drm/*/status; do
-          [ -r "$status" ] || continue
-          connector="$(basename "$(dirname "$status")")"
-          case "$connector" in
-            *-eDP-*|*-LVDS-*|*-DSI-*) continue ;;
-          esac
-          [ "$(cat "$status")" = connected ] && return 0
-        done
-        return 1
-      }
-
       inhibitor_pid=""
       stop_inhibitor() {
         if [ -n "$inhibitor_pid" ]; then
@@ -398,14 +390,14 @@ in {
       trap stop_inhibitor EXIT INT TERM
 
       while true; do
-        if ac_power_connected && external_monitor_connected; then
+        if ac_power_connected; then
           if [ -z "$inhibitor_pid" ] || ! kill -0 "$inhibitor_pid" 2>/dev/null; then
             inhibitor_pid=""
             systemd-inhibit \
               --what=handle-lid-switch \
               --mode=block \
-              --who="razy docked lid policy" \
-              --why="AC power and an external monitor are connected" \
+              --who="razy server mode" \
+              --why="On AC power: serving LESLEY's model" \
               sleep infinity &
             inhibitor_pid=$!
           fi
@@ -447,6 +439,14 @@ in {
     install -d -m 0755 -o gdm -g gdm /var/lib/gdm/.config
     install -m 0644 -o gdm -g gdm ${./gdm-monitors.xml} /var/lib/gdm/.config/monitors.xml
   '';
+
+  # The login screen doesn't suspend on AC either (after a reboot, before
+  # anyone logs in); on battery it keeps GDM's default.
+  programs.dconf.profiles.gdm.databases = [
+    {
+      settings."org/gnome/settings-daemon/plugins/power".sleep-inactive-ac-type = "nothing";
+    }
+  ];
 
   hardware.openrazer.enable = true;
   hardware.openrazer.users = [const.username];
