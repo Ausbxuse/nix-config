@@ -19,6 +19,9 @@
   });
   razyAlsaUcmDir = "${razyAlsaUcmConf}/share/alsa/ucm2";
 
+  # LESLEY's Ollama (machines/razy/home.nix).
+  ollamaAgent = config.home-manager.users.${const.username}.services.ollama-agent;
+
   # Patched daemons go to their service options, not an overlay: overlaying
   # networkmanager changes libnm and forces most of GNOME to build from source.
   # NetworkManager normally walks active devices through an asynchronous
@@ -275,11 +278,9 @@ in {
     '';
   };
 
-  # Avoid long suspend/resume cycles when an Ollama model is still resident
-  # in NVIDIA VRAM (LESLEY's Gemma, kept loaded by the hand-made user service
-  # ~/.config/systemd/user/ollama.service, or ollama-agent's). Without a
-  # server on the port it does nothing.
-  systemd.services.razy-unload-ollama-before-sleep = {
+  # Avoid long suspend/resume cycles when an Ollama model (LESLEY's Gemma,
+  # kept loaded) is still resident in NVIDIA VRAM.
+  systemd.services.razy-unload-ollama-before-sleep = lib.mkIf ollamaAgent.enable {
     description = "Unload Ollama GPU models before system sleep";
     before = ["sleep.target"];
     wantedBy = ["sleep.target"];
@@ -294,25 +295,26 @@ in {
     script = ''
       set -eu
 
-      # ollama-agent listens on localhost; LESLEY's Ollama only on the tailnet.
-      for host in 127.0.0.1:11434 100.64.0.1:11434; do
-        models="$(
-          curl -fsS --max-time 2 "http://$host/api/ps" \
-            | jq -r '.models[]?.name' \
-            || true
-        )"
+      host=${ollamaAgent.host}:${toString ollamaAgent.port}
 
-        [ -n "$models" ] || continue
+      models="$(
+        curl -fsS --max-time 2 "http://$host/api/ps" \
+          | jq -r '.models[]?.name' \
+          || true
+      )"
 
-        printf '%s\n' "$models" | while IFS= read -r model; do
-          [ -n "$model" ] || continue
-          jq -nc --arg model "$model" '{model: $model, prompt: "", keep_alive: 0}' \
-            | curl -fsS --max-time 15 -X POST "http://$host/api/generate" \
-                -H 'Content-Type: application/json' \
-                --data-binary @- \
-                >/dev/null \
-            || true
-        done
+      if [ -z "$models" ]; then
+        exit 0
+      fi
+
+      printf '%s\n' "$models" | while IFS= read -r model; do
+        [ -n "$model" ] || continue
+        jq -nc --arg model "$model" '{model: $model, prompt: "", keep_alive: 0}' \
+          | curl -fsS --max-time 15 -X POST "http://$host/api/generate" \
+              -H 'Content-Type: application/json' \
+              --data-binary @- \
+              >/dev/null \
+          || true
       done
     '';
   };
