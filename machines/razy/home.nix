@@ -20,6 +20,11 @@ in {
 
   home.packages = [pkgs.wechat];
 
+  # No Agent Hub here (the user's rule since 2026-10-30): timy is the only
+  # controller, and gpu-004 answers only to timy.
+  services.agent-hub.enable = lib.mkForce false;
+  services.agent-hub.backup.enable = lib.mkForce false;
+
   # LESLEY's model (Valkrie on timy): Gemma 4 26B, always loaded. Only on the
   # tailnet address, timy's one way into razy (the Headscale policy). Two
   # conversations cached at once, her window and a call, 64k each of the 128k;
