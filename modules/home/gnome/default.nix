@@ -33,7 +33,10 @@
 
     path = sys.argv[1]
     default = "${pkgs.gnomeExtensions.forge}/share/gnome-shell/extensions/forge@jmmaranan.com/config/windows.json"  # noqa: E501
-    rule = {"wmClass": "wl-clipboard", "mode": "float"}
+    rules = [
+        {"wmClass": "wl-clipboard", "mode": "float"},
+        {"wmClass": "cstimer-companion", "mode": "float"},
+    ]
 
     try:
         with open(path) as f:
@@ -45,14 +48,21 @@
         seeded = True
 
     overrides = config.setdefault("overrides", [])
-    if seeded or rule not in overrides:
+    before = list(overrides)
+    # Older companion rules pinned a window ID; keep only the class rule.
+    overrides[:] = [
+        r for r in overrides
+        if r.get("wmClass") != "cstimer-companion" or r in rules
+    ]
+    for rule in rules:
         if rule not in overrides:
             overrides.append(rule)
+    if seeded or overrides != before:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".tmp", "w") as f:
             json.dump(config, f, indent=4)
         os.replace(path + ".tmp", path)
-        print("restored" if seeded else "added float rule")
+        print("restored" if seeded else "updated float rules")
   '';
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     astra-monitor
@@ -170,7 +180,9 @@ in {
   # GNOME has no wlr-data-control, so wl-copy/wl-paste map a tiny helper
   # window (app_id "wl-clipboard") to take focus; Forge tiled it on every copy
   # or paste, making the layout flash. Forge rewrites windows.json itself, so
-  # merge a float rule into it instead of owning the file. When Forge recreates
+  # merge float rules into it instead of owning the file. The cube companion
+  # is a small overlay, so match its class across launches, never a window ID.
+  # When Forge recreates
   # its config dir it leaves windows.json empty, and an empty file puts the
   # extension in ERROR for the whole session, so the file is also checked at
   # every login, before GNOME Shell loads extensions.
