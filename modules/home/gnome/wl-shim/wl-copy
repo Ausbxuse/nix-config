@@ -5,6 +5,7 @@
 # Xwayland without a window; GNOME mirrors it to Wayland clients.
 set -euo pipefail
 real=@wlclipboard@/bin/wl-copy
+. @sessionenv@
 case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) exec "$real" "$@" ;; esac
 [ -n "${DISPLAY:-}" ] || exec "$real" "$@"
 

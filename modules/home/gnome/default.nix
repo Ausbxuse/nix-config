@@ -84,6 +84,7 @@
       substitute ${./wl-shim}/$tool $out/bin/$tool \
         --replace-fail @wlclipboard@ ${pkgs.wl-clipboard} \
         --replace-fail @xclip@ ${pkgs.xclip} \
+        --replace-fail @sessionenv@ ${./wl-shim/session-env.sh} \
         ${"$"}([ $tool = wl-copy ] && echo --replace-fail @python@ ${pkgs.python3}/bin/python3)
       chmod +x $out/bin/$tool
     done
