@@ -82,6 +82,9 @@ class Handoffs:
                 continue
             identity = f"{agent['id']}:{kind}:{agent.get('changed_at', 0)}"
             key = hashlib.sha256(identity.encode()).hexdigest()[:24]
+            if (observed and observed.get('handoff_version') == f"{agent['state']}:{agent.get('changed_at', 0)}" and
+                    observed.get('notice_kind') == kind and observed.get('notice_handoff_id')):
+                key = observed['notice_handoff_id']
             mark = marks.get(key, {})
             if mark.get('handled'):
                 continue

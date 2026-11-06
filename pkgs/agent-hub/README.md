@@ -125,30 +125,21 @@ accept explicit durations up to a day, and then return to All handoffs. Saved wa
 requests are evaluated at settled handoffs, not as timers or continuous metric
 monitors. The user still assigns every follow-up.
 
-Each new settled handoff can receive a short explanation of the task, reported
-change, relevance, and any explicit decision. It appears in the supervisor chat,
-the matching task context, and the update inbox with its original conversation
-link. The source IDs and digests must still match after generation; resumed turns
-and stale events do not interrupt the user. Current work, handled notices, and
-old pre-upgrade notices do not create new summaries. Replies of 300 words or fewer
-are shown unchanged, with their original Markdown. They skip the model unless
-saved watches or an unscoped focus need semantic matching; that check cannot
-rewrite the reply. The reader keeps these replies expanded and omits its extra
-brief. Longer replies get a summary only when it reduces both word and character
-counts by at least half. Cached reports follow the same rule without another
-model call. An agent view shows a summary only when its source is the latest
-reply; original answers and short replies never get a duplicate update card.
-Earlier handoffs remain in global supervisor history and the update inbox.
-The agent name in an update opens its conversation; there is no separate
-"Open agent" button.
-A single background summary
-can run at a time, with a 45-second timeout, at most two attempts per event, and
-48 model calls per hour. Interactive requests take priority. Summaries use bounded
-source excerpts and the same `gpt-6.1-sol` low model in a read-only process. If
-generation is unavailable, the short existing handoff remains usable. Focus
-holds uncertain matches. The notebook and the last eight instruction receipts
-are supplied to ordinary supervisor requests; the full conversation is not saved
-as model memory.
+Agent replies stay in their original form. ARIA produces a summary only when the
+user explicitly requests one in chat, voice, or the Brief action. New handoffs
+never trigger prose summaries, recap cards, or automatic chat insertions; old
+cached automatic summaries are no longer shown. Notifications retain only the
+agent, host and handoff status, plus their exact conversation link.
+
+Saved watch requests and unscoped focus can still use semantic matching at settled
+handoffs. That read-only check uses a schema requiring an empty summary, never
+rewrites the reply, and is skipped when there is no saved request to match.
+Source IDs and digests must remain current; resumed turns and stale events do
+not interrupt the user. Matching is limited to one background check at a time,
+45 seconds per attempt, two attempts per event and 48 model calls per hour;
+interactive requests take priority. The notebook and last eight instruction
+receipts remain available to ARIA without copying the full conversation into
+model memory.
 
 Supervisor-issued instructions have durable follow-through records in Settings:
 delivery acknowledged, queued, exact instruction observed, and response available
@@ -197,12 +188,8 @@ clones with the same origin; only an opaque project key crosses hosts. Ordinary
 directories remain local to their host. Explicit Next passes are remembered during
 the current review cycle, and new work never moves an active conversation.
 Handoff controls sit beside the recipient selector in the composer.
-A long settled reply can end with a small brief: the current request, reported
-change, and an explicit question or decision. Each row opens its exact source
-message. Short replies and source paragraphs already visible in the reader do
-not get a duplicate summary. Working turns and new instructions suppress the
-previous brief. Terminal-only conversations get links to the corresponding
-captured blocks; they do not become verified session facts.
+The conversation shows original replies without an extra Asked/Reported/Decision
+recap. Ask ARIA for a summary when needed.
 The clock button defers a handoff for 30 minutes, one hour, or until tomorrow at
 09:00. The check button marks that exact turn reviewed and opens the next item.
 Both operations persist in SQLite and work across browser reloads/devices using
@@ -1262,6 +1249,17 @@ for 30 days; the inbox is authoritative when push is delayed or denied. The
 controller host must be awake for unified observation. GPU nodes do not watch
 or subscribe to controller updates.
 
+Notifications use the actual turn and reply identities, so polling timestamp
+changes and a CLI restart in the same tmux pane cannot announce the same reply
+again. Existing duplicates are folded into one update without marking it read
+or handled; old notification links still resolve. After a successful, unread
+completion alert, further completions from that agent stay quietly in the app
+for five minutes. A new input request or blocker bypasses that limit. Reading
+the earlier alert also allows the next reply to notify immediately. A host must
+be offline for a minute to alert; reconnects do not alert. Closing an idle agent
+or replacing its CLI is quiet. An active agent missing for 30 seconds still
+alerts, after checking that no replacement is present.
+
 `push-relay/` is a small separate HTTPS enrollment/delivery service (Nix module
 included). Deployed at `https://zhenyuzhao.com/agent-alerts/`, it has no tailnet,
 terminal, conversation, or control access. Only razy holds its publisher token.
@@ -1281,6 +1279,9 @@ saved with the update so pane exits and delivery retries retain their identity.
 Conversation content remains on the private hub; clicking a notification opens
 its saved update/conversation and requires tailnet access. Seen/heard suppression,
 quiet/focus policy, and existing browser subscriptions are unchanged.
+Phone cards state whether the agent has a reply, needs input, needs help, or
+stopped unexpectedly. Each agent uses one replaceable phone card, while clicks
+retain the exact latest notice link. No response text is sent to the relay.
 VAPID keys, subscriptions and per-device delivery receipts live in the relay's
 private state directory. Back this directory up with its private configuration
 to preserve subscriptions after host recovery. The relay only depends on HTTPS

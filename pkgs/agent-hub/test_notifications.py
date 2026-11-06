@@ -130,7 +130,7 @@ class WatchTests(unittest.TestCase):
         self.hub.stop=threading.Event()
         health_started,release_health,health_finished,delivered=(threading.Event() for _ in range(4))
         self.watch.clock=time.time
-        self.hub.snapshot=Mock(return_value={'agents':[],'connections':[]})
+        self.hub.snapshot=Mock(return_value={'agents':[],'connections':[{'id':'gpu','label':'GPU','status':'offline'}]})
         self.watch.relay={'url':'https://example.com','token':'a'*40}
         def relay(path,body):
             if path=='/status':
@@ -145,7 +145,7 @@ class WatchTests(unittest.TestCase):
         try:
             self.assertTrue(health_started.wait(1))
             # No handoff grace for a host outage; it is already settled.
-            self.watch.emit('host-offline','connection','Host offline')
+            self.watch.emit('host-offline','connection','Host offline',target={'connection_id':'gpu','status':'offline'})
             self.assertTrue(delivered.wait(1),'Delivery waited for the health check or old polling interval')
             self.assertFalse(health_finished.is_set())
         finally:
@@ -391,10 +391,10 @@ class WatchTests(unittest.TestCase):
         self.tick(10)
         self.snapshot['connections'][0]['status'] = 'offline'
         self.snapshot['agents'] = []
-        self.tick(1); self.tick(10)
+        self.tick(1); self.tick(60)
         self.assertEqual([item['kind'] for item in self.items()], ['connection'])
         self.snapshot['connections'][0]['status'] = 'online'
-        self.tick(1); self.tick(10)
+        self.tick(1); self.tick(30)
         self.assertIn('exited', [item['kind'] for item in self.items()])
 
     def test_worker_cannot_watch_or_publish_controller_updates(self):
@@ -460,6 +460,7 @@ class WatchTests(unittest.TestCase):
         self.tick(1)
         self.snapshot['agents'] = []
         self.tick(1)
+        self.tick(30)
         self.watch.relay = {'url':'https://example.com','token':'a'*40}
         self.watch.relay_call = Mock(return_value={'subscribers':1})
         self.watch.deliver()
@@ -473,7 +474,7 @@ class WatchTests(unittest.TestCase):
         agents = [{**self.snapshot['agents'][0], 'id':f'host-{i}:a','display_title':'🧪'*120, 'connection_label':f'gpu-{i}-'+'🧪'*100} for i in range(5)]
         for i, agent in enumerate(agents):
             self.watch.emit(str(i),'done','Private title',agent_id=agent['id'],target=self.watch.target(agent))
-        self.watch.emit('duplicate','done','Another turn',agent_id=agents[0]['id'],target=self.watch.target(agents[0]))
+        self.watch.emit('decision','waiting','A new decision',agent_id=agents[0]['id'],target=self.watch.target(agents[0]))
         self.now += SEEN_GRACE
         for _ in agents:
             self.watch.deliver()
@@ -494,7 +495,7 @@ class WatchTests(unittest.TestCase):
         agent = self.snapshot['agents'][0]
         self.watch.emit('first-turn','done','First reply',agent_id=agent['id'],target=self.watch.target(agent))
         self.now += 1
-        self.watch.emit('second-turn','done','Second reply',agent_id=agent['id'],target=self.watch.target(agent))
+        self.watch.emit('decision','waiting','A new decision',agent_id=agent['id'],target=self.watch.target(agent))
         latest = self.items()[0]['id']
         self.now += SEEN_GRACE
         self.watch.deliver()
@@ -526,6 +527,7 @@ class WatchTests(unittest.TestCase):
         agent={**self.snapshot['agents'][0], 'state':'done','changed_at':1001}
         target=self.watch.target(agent)
         self.watch.emit('one','done','Review this',agent_id=agent['id'],target=target)
+        self.now += 301
         self.watch.emit('next','done','A later reply',agent_id=agent['id'],target=self.watch.target({**agent,'changed_at':1002}))
         self.watch.update({'attention':{'id':target['handoff_id'],'agent_id':agent['id'],'version':target['version'],'mode':'seen'}})
         rows=self.items()

@@ -5,8 +5,8 @@ self.addEventListener("push", event => {
   let value = {};
   try { value = event.data.json(); } catch {}
   event.waitUntil(self.registration.showNotification(value.title || "Agent Hub", {
-    body: value.body || "There is an agent update in your hub.", tag: value.id || "agent-hub-update",
-    icon: "./icon.svg", data: { url: value.url }, renotify: false,
+    body: value.body || "There is an agent update in your hub.", tag: value.tag || value.id || "agent-hub-update",
+    icon: "./icon.svg", data: { url: value.url }, renotify: value.quiet !== true, silent: value.quiet === true,
   }));
 });
 self.addEventListener("notificationclick", event => {

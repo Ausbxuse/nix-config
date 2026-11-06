@@ -274,8 +274,10 @@ class RoutingTests(unittest.TestCase):
                                  target={'handoff_id':'handoff-current', 'version':'done:123'})
                 notice = hub.watcher.state()['items'][0]
                 sources = [{'message_id':'claude-final', 'digest':'fixture-digest'}]
+                # Summaries are shown only when the user asked for one.
                 hub.assistant.put('assistant_reports', dict(id=notice['id'], created=notice['created'], status='ready',
-                                  summary='The measured score is **0.4**.', original_reply=True, sources=sources))
+                                  summary='The measured score is **0.4**.', original_reply=True, sources=sources,
+                                  summary_requested=True))
                 message = hub.snapshot()['messages'][0]
                 self.assertEqual(message['handoff_id'], 'handoff-current')
                 self.assertEqual(message['sources'], sources)

@@ -13,6 +13,35 @@ import bridge
 from federation import NoRedirect
 
 SEEN_GRACE = 1.25  # Allow the visible-reply receipt (700 ms) to beat phone push.
+COMPLETION_ALERT_INTERVAL = 300
+HOST_OFFLINE_DELAY = 60
+MISSING_AGENT_DELAY = 30
+
+
+def agent_scope(identity):
+    """A CLI restart in the same tmux pane is still the same work surface."""
+    match = re.fullmatch(r'(.+:%\d+:\d+:@\d+)(?::\d*)?', identity)
+    return match[1] if match else identity
+
+
+def event_keys(kind, agent_id, target):
+    """Source identities, never polling timestamps or changing terminal chrome."""
+    if not agent_id or kind not in ('done', 'waiting', 'blocked'):
+        return []
+    scope = agent_scope(agent_id)
+    observation = target.get('observation', {})
+    turn = observation.get('turn_status', {}).get('turn_id')
+    fingerprint = observation.get('activity_fingerprint')
+    sources = []
+    if kind == 'done':
+        if turn:
+            sources.append(('turn', turn))
+        if target.get('message_id'):
+            sources.append(('message', target['message_id']))
+    elif fingerprint:
+        # Multiple approvals can occur in one turn; the decision must also match.
+        sources.append(('decision', turn or '', fingerprint))
+    return [hashlib.sha256(json.dumps([scope, kind, *source]).encode()).hexdigest() for source in sources]
 
 
 def meaningful(text):
@@ -110,6 +139,7 @@ class Watcher:
                 CREATE TABLE IF NOT EXISTS handoff_marks(
                   id TEXT PRIMARY KEY, seen REAL, handled REAL, deferred_until REAL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS push_batches(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS notification_events(event TEXT PRIMARY KEY, notice_id TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS notifications(
                   id TEXT PRIMARY KEY, dedupe TEXT UNIQUE NOT NULL, kind TEXT NOT NULL,
                   title TEXT NOT NULL, body TEXT NOT NULL, agent_id TEXT NOT NULL,
@@ -126,12 +156,55 @@ class Watcher:
             for column in ('push_started_at', 'push_accepted_at'):
                 if column not in {row[1] for row in db.execute("PRAGMA table_info(notifications)")}:
                     db.execute(f'ALTER TABLE notifications ADD COLUMN {column} REAL')
+            if 'duplicate_of' not in {row[1] for row in db.execute('PRAGMA table_info(notifications)')}:
+                db.execute("ALTER TABLE notifications ADD COLUMN duplicate_of TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS notification_handoff ON notifications(agent_id,json_extract(target,'$.handoff_id'))")
+            db.execute('CREATE INDEX IF NOT EXISTS notification_event_notice ON notification_events(notice_id)')
             # Do not deliver output-only alerts left in the outbox by older builds.
             # Keep their history and read/handled state intact.
             db.execute("UPDATE notifications SET push_state='suppressed' WHERE kind IN ('progress','quiet') AND push_state='pending'")
             db.execute("UPDATE notifications SET push_state='suppressed' WHERE dedupe='watch-initial' AND push_state='pending'")
+            migrated = db.execute("SELECT value FROM watch_settings WHERE key='event_identity_version'").fetchone()
+            if not migrated:
+                for row in db.execute("SELECT * FROM notifications WHERE duplicate_of='' ORDER BY created,id").fetchall():
+                    keys = event_keys(row['kind'], row['agent_id'], json.loads(row['target']))
+                    previous = self.find_event(db, keys)
+                    if previous:
+                        self.merge_event(db, previous, dict(row))
+                        db.execute("UPDATE notifications SET duplicate_of=?,push_state=CASE WHEN push_state='pending' THEN 'duplicate' ELSE push_state END WHERE id=?", (previous['id'], row['id']))
+                    self.save_event(db, keys, previous['id'] if previous else row['id'])
+                db.execute("INSERT INTO watch_settings VALUES('event_identity_version','1')")
         self.enabled = self.setting("enabled", "true") == "true"
+
+    @staticmethod
+    def find_event(db, keys):
+        if not keys:
+            return None
+        row = db.execute(f"SELECT n.* FROM notifications n JOIN notification_events e ON n.id=e.notice_id WHERE e.event IN ({','.join('?' for _ in keys)}) AND n.duplicate_of='' ORDER BY n.created LIMIT 1", keys).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def save_event(db, keys, notice_id):
+        db.executemany('INSERT OR REPLACE INTO notification_events VALUES(?,?)', [(key, notice_id) for key in keys])
+
+    @staticmethod
+    def merge_event(db, previous, incoming):
+        """Refresh the destination without re-alerting or undoing a read/review."""
+        old = json.loads(previous['target'])
+        target = {**old, **json.loads(incoming['target'])}
+        canonical = old.get('handoff_id')
+        if canonical:
+            for identity in {canonical, target.get('handoff_id')} - {None}:
+                mark = db.execute('SELECT * FROM handoff_marks WHERE id=?', (identity,)).fetchone()
+                if mark:
+                    db.execute('INSERT OR IGNORE INTO handoff_marks(id) VALUES(?)', (canonical,))
+                    db.execute('UPDATE handoff_marks SET seen=COALESCE(seen,?),handled=COALESCE(handled,?),deferred_until=MAX(deferred_until,?) WHERE id=?',
+                               (mark['seen'], mark['handled'], mark['deferred_until'], canonical))
+            target['handoff_id'] = canonical
+        db.execute('UPDATE notifications SET target=?,agent_id=?,title=?,read_at=COALESCE(read_at,?),handled_at=COALESCE(handled_at,?) WHERE id=?',
+                   (json.dumps(target), incoming['agent_id'], incoming['title'], incoming.get('read_at'), incoming.get('handled_at'), previous['id']))
+        db.execute("UPDATE notifications SET push_state='observed' WHERE id=? AND read_at IS NOT NULL AND push_state='pending' AND push_batch=''", (previous['id'],))
+        return dict(db.execute('SELECT * FROM notifications WHERE id=?', (previous['id'],)).fetchone())
 
     def setting(self, key, default=""):
         with self.hub.db() as db:
@@ -144,10 +217,10 @@ class Watcher:
 
     def state(self):
         with self.hub.db() as db:
-            rows = [dict(row) for row in db.execute("SELECT * FROM (SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE handled_at IS NULL ORDER BY created DESC LIMIT 60) UNION ALL SELECT * FROM (SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE handled_at IS NOT NULL ORDER BY created DESC LIMIT 60) ORDER BY created DESC")]
-            unread = db.execute("SELECT count(*) FROM notifications WHERE read_at IS NULL").fetchone()[0]
-            unhandled = db.execute("SELECT count(*) FROM notifications WHERE handled_at IS NULL").fetchone()[0]
-            handled = db.execute("SELECT count(*) FROM notifications WHERE handled_at IS NOT NULL").fetchone()[0]
+            rows = [dict(row) for row in db.execute("SELECT * FROM (SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE duplicate_of='' AND handled_at IS NULL ORDER BY created DESC LIMIT 60) UNION ALL SELECT * FROM (SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE duplicate_of='' AND handled_at IS NOT NULL ORDER BY created DESC LIMIT 60) ORDER BY created DESC")]
+            unread = db.execute("SELECT count(*) FROM notifications WHERE duplicate_of='' AND read_at IS NULL").fetchone()[0]
+            unhandled = db.execute("SELECT count(*) FROM notifications WHERE duplicate_of='' AND handled_at IS NULL").fetchone()[0]
+            handled = db.execute("SELECT count(*) FROM notifications WHERE duplicate_of='' AND handled_at IS NOT NULL").fetchone()[0]
             pending = db.execute("SELECT count(*) FROM notifications WHERE push_state='pending'").fetchone()[0]
             latest = db.execute('SELECT created,push_state,read_at,handled_at,push_started_at,push_accepted_at FROM notifications ORDER BY created DESC LIMIT 1').fetchone()
         for row in rows:
@@ -231,7 +304,7 @@ class Watcher:
         if not isinstance(identity, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,100}', identity):
             raise bridge.BridgeError('Invalid update link')
         with self.hub.db() as db:
-            row = db.execute('SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE id=?', (identity,)).fetchone()
+            row = db.execute("SELECT id,kind,title,body,agent_id,created,read_at,handled_at,target FROM notifications WHERE id=(SELECT CASE WHEN duplicate_of='' THEN id ELSE duplicate_of END FROM notifications WHERE id=?)", (identity,)).fetchone()
         if not row:
             raise bridge.BridgeError('This update is no longer available')
         result = dict(row)
@@ -271,15 +344,32 @@ class Watcher:
         target = target or {}
         now = self.clock()
         with self.hub.db() as db:
+            db.execute('BEGIN IMMEDIATE')
             attention = db.execute('SELECT COALESCE(seen_at,heard_at) FROM handoff_attention WHERE id=?', (target.get('handoff_id', ''),)).fetchone()
             read_at = attention[0] if attention else None
+            keys = event_keys(kind, agent_id, target)
+            previous = self.find_event(db, keys)
+            if previous:
+                result = self.merge_event(db, previous, {'target': json.dumps(target), 'agent_id': agent_id,
+                                                       'title': title[:180], 'read_at': read_at})
+                self.save_event(db, keys, previous['id'])
+                return result
+            if kind == 'done' and agent_id:
+                recent = db.execute("SELECT agent_id FROM notifications WHERE kind='done' AND duplicate_of='' AND read_at IS NULL AND handled_at IS NULL AND push_state='sent' AND push_accepted_at>? AND json_extract(target,'$.quiet') IS NOT 1", (now - COMPLETION_ALERT_INTERVAL,)).fetchall()
+                if any(agent_scope(row['agent_id']) == agent_scope(agent_id) for row in recent):
+                    # Keep the new response and its direct link in the app;
+                    # another routine completion must not buzz the phone again.
+                    target = {**target, 'quiet': True}
             db.execute("INSERT OR IGNORE INTO notifications(id,dedupe,kind,title,body,agent_id,created,target,read_at,push_state,next_attempt) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                        (secrets.token_urlsafe(16), dedupe, kind, title[:180], body[:1400], agent_id, now,
-                        json.dumps(target), read_at, 'observed' if read_at is not None else 'pending',
+                        json.dumps(target), read_at, 'observed' if read_at is not None else 'quiet' if target.get('quiet') else 'pending',
                         now + SEEN_GRACE if target.get('handoff_id') else 0))
+            result = dict(db.execute('SELECT * FROM notifications WHERE dedupe=?', (dedupe,)).fetchone())
+            self.save_event(db, keys, result['id'])
         self.push_wake.set()
         if hasattr(self.hub, 'live'):
             self.hub.live.wake()
+        return result
 
     def tick(self, snapshot=None):
         if not self.enabled or not self.eligible():
@@ -301,10 +391,12 @@ class Watcher:
             current = dict(prior)
             if current.get("candidate") != status:
                 current.update(candidate=status, since=now)
-            if current.get("status") != status and now - current["since"] >= 9:
-                if prior.get("status") or status == "offline":
+            if current.get("status") != status and now - current["since"] >= (HOST_OFFLINE_DELAY if status == 'offline' else 9):
+                if status == 'offline':
                     self.emit(f'{key}:{status}:{current["since"]}', "connection", f'{connection["label"]} {"is offline" if status == "offline" else "reconnected"}',
-                              "The hub keeps the last updates. Retry commands after the host connects." if status == "offline" else "The hub can receive agent updates again.")
+                              "The hub keeps the last updates. Retry commands after the host connects.",
+                              target={'connection_id': connection['id'], 'status': status,
+                                      'agents': [{'name': connection['label'], 'host': ''}]})
                 current["status"] = status
             observed[key] = current
         online = {c["id"] for c in snapshot["connections"] if c["status"] == "online"}
@@ -337,7 +429,7 @@ class Watcher:
                 # nor the host recheck and could alert about resumed work.
                 initial = 'unknown' if status in ('waiting', 'blocked', 'done') and not agent.get('acknowledged') else status
                 current.update(status=initial, sequence=0)
-            delay = bridge.handoff_delay(agent) if status in ('waiting', 'blocked', 'done', 'exited') else 0
+            delay = MISSING_AGENT_DELAY if status == 'exited' else bridge.handoff_delay(agent) if status in ('waiting', 'blocked', 'done') else 0
             if current.get("status") != status and now - current["since"] >= delay:
                 preview = self.verified_preview(agent, status) if status in ('waiting', 'blocked', 'done') else {}
                 if preview is None:
@@ -347,24 +439,32 @@ class Watcher:
                     observed[key] = current
                     continue
                 current["sequence"] += 1
-                if status in ("waiting", "blocked", "done", "exited"):
+                if status in ("waiting", "blocked", "done") or (status == 'exited' and prior and prior.get('status') in ('running', 'waiting', 'blocked')):
                     label = {"waiting": "needs your input", "blocked": "is blocked", "done": "has a response to review", "exited": "exited"}[status]
-                    self.emit(f'{key}:{current["sequence"]}:{status}', status, f'{agent["title"]} on {agent["connection_label"]} {label}',
+                    notice = self.emit(f'{key}:{current["sequence"]}:{status}', status, f'{agent["title"]} on {agent["connection_label"]} {label}',
                               {"waiting": "Open the agent and provide the requested input.",
                                "blocked": "Open the agent and check what prevents progress.",
                                "done": "The agent ended its turn. Review its response. Task completion is not verified.",
                                "exited": "The agent process stopped. Open the agent to check its last output."}[status]
                               + ("\nAgent output: " + excerpt(agent.get("preview", "")) if excerpt(agent.get("preview", "")) else ""), agent["id"], self.target(agent, preview))
+                    current['notice_handoff_id'] = json.loads(notice['target']).get('handoff_id')
+                    current['notice_kind'] = status
                 current["status"] = status
             current.update(connection_id=agent["connection_id"], title=agent["title"], display_title=push_agent(agent)['name'], host=agent["connection_label"], missing=False)
+            current.pop('missing_since', None)
             observed[key] = current
         for key, prior in old.items():
             if key not in observed and key.startswith("agent:"):
+                # A copy: changes must differ from old[key] to be written.
+                prior = dict(prior)
                 if prior.get("connection_id") in online:
-                    if not prior.get("missing"):
+                    prior.setdefault('missing_since', now)
+                    replacement = any(agent_scope(agent['id']) == agent_scope(key[6:]) for agent in snapshot['agents'])
+                    if not prior.get("missing") and not replacement and now - prior['missing_since'] >= MISSING_AGENT_DELAY and prior.get('status') in ('running', 'waiting', 'blocked'):
                         self.emit(f'{key}:missing:{prior.get("sequence", 0)}', "exited", f'{prior.get("title", "Agent")} on {prior.get("host", "host")} is no longer visible', "The hub cannot find its tmux pane. Previous updates remain in the Updates inbox.", key[6:],
                                   {'agents': [{'name': prior.get('display_title') or prior.get('title', 'Agent'), 'host': prior.get('host', '')}]})
-                    prior["missing"] = True
+                    if replacement or now - prior['missing_since'] >= MISSING_AGENT_DELAY:
+                        prior["missing"] = True
                 observed[key] = prior
         with self.hub.db() as db:
             # This runs every second; rewriting unchanged rows was most of the
@@ -378,6 +478,7 @@ class Watcher:
             db.execute("DELETE FROM notifications WHERE handled_at IS NOT NULL AND handled_at<?", (now - 30 * 86400,))
             db.execute('DELETE FROM handoff_attention WHERE COALESCE(heard_at,seen_at)<?', (now - 30 * 86400,))
             db.execute('DELETE FROM push_batches WHERE id NOT IN (SELECT push_batch FROM notifications WHERE push_batch != \'\')')
+            db.execute('DELETE FROM notification_events WHERE notice_id NOT IN (SELECT id FROM notifications)')
         self.checked, self.error = now, ""
 
     def relay_call(self, path, body):
@@ -424,16 +525,27 @@ class Watcher:
         """Revalidate outside the outbox transaction: previews can write archives."""
         if not hasattr(self.hub, 'snapshot'):
             return {row['id'] for row in rows}, []
-        agents = {agent['id']:agent for agent in self.hub.snapshot(include_notifications=False)['agents']}
+        snapshot = self.hub.snapshot(include_notifications=False)
+        agents = {agent['id']:agent for agent in snapshot['agents']}
+        connections = {connection['id']: connection for connection in snapshot.get('connections', [])}
         allowed, superseded, checked = set(), [], {}
         for row in rows:
+            target = json.loads(row['target'])
+            if row['kind'] == 'connection':
+                connection = connections.get(target.get('connection_id'))
+                if not connection or connection.get('status') != 'offline':
+                    superseded.append(row['id'])
+                    continue
+            if row['kind'] == 'exited' and row['agent_id']:
+                if any(agent.get('live', True) and agent_scope(agent['id']) == agent_scope(row['agent_id']) for agent in agents.values()):
+                    superseded.append(row['id'])
+                    continue
             if row['kind'] not in ('done', 'waiting', 'blocked') or not row['agent_id']:
                 allowed.add(row['id'])
                 continue
             agent = agents.get(row['agent_id'])
             if not agent or not agent.get('connection_online'):
                 continue
-            target = json.loads(row['target'])
             if target.get('version') != f"{agent['state']}:{agent.get('changed_at', 0)}" or bridge.handoff_state(agent) != row['kind']:
                 if agent.get('state') != 'unknown':
                     superseded.append(row['id'])
@@ -528,7 +640,9 @@ class Watcher:
                     labels = [push_agent({'title': source['name'], 'connection_label': source['host']}) for source in agents[:3]]
                     payload = {"id": batch, "count": len(payload_rows), "agent_id": payload_rows[-1]['agent_id'],
                                "notice_id": payload_rows[-1]['id'] if payload_rows[-1]['agent_id'] else '',
-                               'agents': labels, 'agent_count': len(agents)}
+                               'agents': labels, 'agent_count': len(agents),
+                               'kind': payload_rows[-1]['kind'],
+                               'quiet': all(json.loads(row['target']).get('quiet', False) for row in payload_rows)}
                     db.execute('INSERT INTO push_batches VALUES(?,?)', (batch, json.dumps(payload)))
                 more = any(row['id'] not in ids and row['push_batch'] not in held_batches and permitted(row) for row in candidates)
             try:

@@ -52,6 +52,7 @@
       ./backup_status.py
       ./assistant.py
       ./handoff-schema.json
+      ./handoff-match-schema.json
       ./handoff-instructions.txt
       ./updates.py
       ./static_assets.py

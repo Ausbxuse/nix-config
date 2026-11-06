@@ -42,17 +42,6 @@
   window.addEventListener('focus',()=>attention.sync());
   window.addEventListener('blur',()=>attention.sync());
   $('agent-reader').addEventListener('scroll',()=>attention.sync(),{passive:true});
-  const handoffBrief=document.createElement('section');handoffBrief.id='handoff-brief';handoffBrief.className='handoff-brief';handoffBrief.hidden=true;handoffBrief.setAttribute('aria-label','Current handoff brief');
-  $('agent-reader').append(handoffBrief);
-  handoffBrief.addEventListener('click',event=>{
-    const button=event.target.closest('[data-brief-source]');
-    const field=button && handoffBrief._fields?.[Number(button.dataset.briefSource)];
-    if(!field)return;
-    if(field.source.message_id)AgentReader.reveal($('agent-output'),field.source.role+':'+field.source.message_id);
-    const target=HubBrief.sourceNode(field,$('agent-output'),detail.messages || [],detail.text || '');
-    if(!target){toast('This source changed. Refresh the conversation.');return;}
-    jumpTo(target);
-  });
   ui.revision=0;ui.requests=new Map();
   ui.passed=new Set();
   new ResizeObserver(()=>{if(state.snapshot)decorate();}).observe($('agent-reader'));
@@ -317,14 +306,6 @@
     replaceMarkup($('focus-subtitle'),subtitle,'id');
     document.querySelectorAll('[data-host-group]').forEach(group=>{group.dataset.hostTone=hostTone(group.dataset.hostGroup);});
     const item = current(), candidate=HubRouting.nextHandoff(ready(),state.snapshot?.agents || [],state.selected,ui.passed);
-    const delivery=interaction.receipts.get(state.selected),newInstruction=delivery && ['sending','sent','uncertain'].includes(delivery.status) && !delivery.responseSeen && delivery.created>(item?.created || 0);
-    const reader=$('agent-reader'),scroll=reader.scrollTop,follow=reader.scrollHeight-reader.scrollTop-reader.clientHeight<80 && !isReadingOutput();
-    HubBrief.render(handoffBrief,{facts:detail.facts,messages:detail.messages,text:detail.text || '',version:detail.signature,handoff:item,agentId:state.selected,
-      viewport:reader.clientWidth+':'+reader.clientHeight,
-      visible:field=>HubBrief.sourceVisible(field,$('agent-output'),detail.messages || [],detail.text || '',reader),
-      enabled:Boolean(task && ui.mode==='agent' && !newInstruction && !agent.activity_confirmed && !['running','recovering'].includes(agent.state))},()=>{
-      if(follow && reader.scrollTop===scroll)reader.scrollTop=reader.scrollHeight;
-    });
     const upcoming=candidate?.agent_id!==state.selected?candidate:null;
     $('handoff-context').hidden = !task || (!item && !upcoming);
     $('defer-menu').hidden=!item;
@@ -446,7 +427,6 @@
   }
   function spokenHandoff(item) {
     if(!item)return "There's nothing waiting for your review.";
-    if(item.brief)return `${item.title} on ${item.host}. ${item.brief}`;
     const update={waiting:'is waiting for your answer',blocked:'needs your help to continue',done:'has a reply for you',exited:'has stopped'}[item.kind] || 'has an update for you';
     return `${item.title} on ${item.host} ${update}.`;
   }
@@ -649,17 +629,10 @@
   }
   function leaveConversation(){saveReading();persistDrafts();stopRestoring();releaseComposerScroll();ui.revision++;ui.awaitingFirst=false;if(ui.voice||ui.voiceOpening)endVoice();}
   function scopeMessages(messages) {
-    const context=state.context || '',handoff=queue().find(item=>item.agent_id===context);
-    return messages.filter(message=>{
-      if(message.role!=='update')return (message.context_agent_id || '')===context;
-      if(!message.assistant_summary)return false;
-      if(!context)return true;
-      // An old handoff does not describe the turn now shown in this agent view.
-      if(message.agent_id!==context || !handoff || message.handoff_id!==handoff.id)return false;
-      // The reader has the original. Add only a substantially shorter brief of
-      // that exact current reply; the inbox retains the full update history.
-      return HubBrief.usefulUpdate(message,detail.messages || []);
-    });
+    const context=state.context || '';
+    // Replies to an explicit request belong here; background updates stay in
+    // the inbox and never become unsolicited summaries in the conversation.
+    return messages.filter(message=>message.role!=='update' && (message.context_agent_id || '')===context);
   }
   window.HubFocus={hostTone,voiceActive:()=>ui.voice,saveReading,render,navigate,opened,preview,decorate,badge,showSupervisor,home,chatChanged,persistDrafts,replyAndNext,supervisorStarted,supervisorProgress,supervisorFinished,clarificationId,endCall,jumpTo,stopRestoring,continuitySnapshot,continuityDraft,continueHere,leaveConversation,scopeMessages};
 

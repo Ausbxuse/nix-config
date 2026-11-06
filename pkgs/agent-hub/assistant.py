@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 MODES = {'normal', 'driving', 'focus', 'quiet'}
 TERMINAL = {'response', 'paused', 'closed', 'unconfirmed'}
 SHORT_REPLY_WORDS = 300
-SUMMARY_POLICY = 1
+SUMMARY_POLICY = 2
 RECEIPT_QUESTIONS = frozenset({
     'did you send it', 'did you send that', 'did you send my message',
     'did you send my instruction', 'was my message sent', 'was that sent',
@@ -434,10 +434,6 @@ class Assistant:
         mode = state.get('attention', {})
         if mode.get('mode') == 'quiet':
             return False
-        if wait_for_summary and not report and row.get('kind') in ('waiting', 'blocked', 'done', 'exited') and row['created'] >= self.since and self.clock() - row['created'] < 75:
-            return False
-        if wait_for_summary and report and report.get('status') in ('pending', 'thinking') and self.clock() - row['created'] < 75:
-            return False
         if report and report.get('status') == 'superseded':
             return False
         if mode.get('mode') == 'focus':
@@ -451,12 +447,11 @@ class Assistant:
         reports, state = self.reports(), self.state()
         for row in rows:
             report = reports.get(row['id'])
-            if report and report.get('summary'):
+            if report and report.get('summary_requested') and report.get('summary'):
                 row.update(body=report['summary'], assistant_summary=True, original_reply=report.get('original_reply', False),
                            sources=report.get('sources', []))
-            # The generic visual alert can open the source immediately. Speech
-            # and the contextual brief can still wait for a useful summary.
-            row['interrupt'] = self.may_interrupt(row, report, state, wait_for_summary=False)
+            # Status alerts never wait for or generate a prose recap.
+            row['interrupt'] = not row.get('target', {}).get('quiet', False) and self.may_interrupt(row, report, state, wait_for_summary=False)
             row['held'] = not row['interrupt']
         return rows
 
@@ -465,11 +460,14 @@ class Assistant:
             return items
         state = self.state()
         reports = {r.get('handoff_id'): r for r in self.reports().values()}
+        with self.hub.db() as db:
+            quiet = {json.loads(row[0]).get('handoff_id') for row in db.execute("SELECT target FROM notifications WHERE duplicate_of='' AND json_extract(target,'$.quiet')=1")}
         for item in items:
             report = reports.get(item['id'])
-            item['interrupt'] = self.may_interrupt({**item, 'created': item['created']}, report, state)
+            item['interrupt'] = item['id'] not in quiet and self.may_interrupt({**item, 'created': item['created']}, report, state)
             if report and report.get('status') == 'ready':
-                item['brief'] = report['summary']
+                if report.get('summary_requested') and report.get('summary'):
+                    item['brief'] = report['summary']
                 item['preferred'] |= bool(report.get('relevant_ids'))
         items.sort(key=lambda i: (i['deferred_until'] > self.clock(), not i['preferred'], {'waiting': 0, 'blocked': 1, 'done': 2, 'exited': 3}[i['kind']], i['created'], i['id']))
         return items
@@ -486,7 +484,7 @@ class Assistant:
                 raise BridgeError('Hourly handoff summary budget reached.')
             db.execute("INSERT OR REPLACE INTO assistant_settings VALUES('model_calls',?)", (json.dumps(calls + [self.clock()]),))
         command = [executable, 'exec', '--model', self.hub.supervisor_model, '--ignore-user-config', '--skip-git-repo-check',
-                   '--ephemeral', '--sandbox', 'read-only', '--json', '--output-schema', str(ROOT / 'handoff-schema.json'),
+                   '--ephemeral', '--sandbox', 'read-only', '--json', '--output-schema', str(ROOT / ('handoff-match-schema.json' if evidence.get('preserve_reply') else 'handoff-schema.json')),
                    '-c', 'model_reasoning_effort="low"', '-c', 'notify=[]', '-c', 'features.apps=false', '-c', 'features.multi_agent=false',
                    '-c', 'features.shell_tool=false', '-c', 'tools.view_image=false', '-c', 'web_search="disabled"',
                    '-c', 'features.apply_patch_freeform=false', '-c', 'features.code_mode=false',
@@ -512,6 +510,10 @@ class Assistant:
                 self.hub.processes.discard(process)
 
     def summarize(self, notice, agents):
+        """Explicit summary request; background observation uses assess_handoff."""
+        return self.assess_handoff(notice, agents, summarize=True)
+
+    def assess_handoff(self, notice, agents, *, summarize=False):
         agent = next((a for a in agents if a['id'] == notice['agent_id']), None)
         report = {**self.reports().get(notice['id'], {}), 'id': notice['id'], 'handoff_id': notice['target'].get('handoff_id'),
                   'created': notice['created'], 'updated': self.clock()}
@@ -532,19 +534,20 @@ class Assistant:
         if earlier:
             selected.insert(0, earlier)
         state = self.state()
-        original_reply = len(replies[-1]['text'].split()) <= SHORT_REPLY_WORDS
-        # Short answers need no rewrite. Semantic watch/focus matching is still
-        # available, but it cannot change the text shown to the user.
+        original_reply = not summarize or len(replies[-1]['text'].split()) <= SHORT_REPLY_WORDS
+        # Background work only checks the user's saved watch/focus requests.
+        # Neither long replies nor a new handoff authorize a summary.
         match_context = (any(not r['agent_id'] or r['agent_id'] == agent['id'] for r in state['records']) or
                          (state['attention']['mode'] == 'focus' and not state['attention'].get('agent_id')))
         cached = None
         source_digests = {m['id']: digest(m['text']) for m in selected}
-        if (report.get('summary') and report.get('revision') == state['revision'] and report.get('sources') and
+        if ((not summarize or report.get('summary_requested')) and report.get('status') == 'ready' and
+            report.get('revision') == state['revision'] and report.get('sources') and
             replies[-1]['id'] in {s['message_id'] for s in report['sources']} and
             all(source_digests.get(s['message_id']) == s['digest'] for s in report['sources'])):
             # Upgrade old pending handoffs without generating another summary or
             # spending tokens to reassess unchanged source/context evidence.
-            cached = dict(summary=report['summary'], source_ids=[s['message_id'] for s in report['sources']],
+            cached = dict(summary=report.get('summary', ''), source_ids=[s['message_id'] for s in report['sources']],
                           relevant_ids=report.get('relevant_ids', []), focus_relevant=report.get('focus_relevant', False))
         needs_model = cached is None and (not original_reply or match_context)
         calls = [stamp for stamp in self.setting('model_calls', []) if stamp > self.clock() - 3600]
@@ -582,7 +585,8 @@ class Assistant:
                 relevant = result.get('relevant_ids', [])
                 if not isinstance(relevant, list):
                     raise BridgeError('Invalid relevance evidence.')
-                report.update(status='ready', summary=summary if original_reply else summary.strip(), original_reply=original_reply,
+                report.update(status='ready', summary=(summary if original_reply else summary.strip()) if summarize else '',
+                              summary_requested=summarize, original_reply=original_reply,
                               short_reply_words=SHORT_REPLY_WORDS, summary_policy=SUMMARY_POLICY, revision=state['revision'],
                               relevant_ids=[r['id'] for r in state['records'] if r['id'] in relevant and (not r['agent_id'] or r['agent_id'] == agent['id'])],
                               focus_relevant=result.get('focus_relevant') is True,
@@ -590,7 +594,7 @@ class Assistant:
                 self.error = ''
         except Exception:
             report.update(status='unavailable', retry_at=self.clock() + 120)
-            self.error = 'Some handoff summaries are unavailable. Open the source response for details.'
+            self.error = 'The requested summary is unavailable.' if summarize else 'Some saved watch requests could not be checked. Open the agent for details.'
         report['updated'] = self.clock()
         self.put('assistant_reports', report)
 
@@ -626,7 +630,7 @@ class Assistant:
         if not self.hub.watcher.enabled:
             return
         with self.hub.db() as db:
-            rows = [dict(r) for r in db.execute("SELECT * FROM notifications WHERE created>=? AND handled_at IS NULL AND kind IN ('waiting','blocked','done','exited') ORDER BY created DESC LIMIT 40", (max(self.since, self.clock() - 86400),))]
+            rows = [dict(r) for r in db.execute("SELECT * FROM notifications WHERE duplicate_of='' AND created>=? AND handled_at IS NULL AND kind IN ('waiting','blocked','done','exited') ORDER BY created DESC LIMIT 40", (max(self.since, self.clock() - 86400),))]
         reports = self.reports()
         by_id = {a['id']: a for a in agents}
         attention = self.state()
@@ -649,21 +653,21 @@ class Assistant:
         reports = self.reports()
         for row in rows:
             report = reports.get(row['id'], {})
-            refresh = (report.get('status') == 'superseded' and report.get('summary') and
+            refresh = (report.get('summary_requested') and report.get('status') == 'superseded' and report.get('summary') and
                        (report.get('short_reply_words') != SHORT_REPLY_WORDS or report.get('summary_policy') != SUMMARY_POLICY) and by_id.get(row['agent_id'], {}).get('connection_online'))
             if refresh or (report.get('status') not in ('ready', 'superseded') and report.get('attempts', 0) < 2 and report.get('retry_at', 0) <= self.clock()):
                 if background:
                     if self.summary_lock.acquire(blocking=False):
                         def summarize(value=row, refresh=refresh):
                             try:
-                                (self.refresh_cached_reply if refresh else self.summarize)(value, agents)
+                                (self.refresh_cached_reply if refresh else self.assess_handoff)(value, agents)
                             except Exception:
-                                self.error = 'A handoff summary is unavailable. The source response is still saved.'
+                                self.error = 'A saved watch request could not be checked. The source response is still saved.'
                             finally:
                                 self.summary_lock.release()
                         threading.Thread(target=summarize, daemon=True).start()
                 else:
-                    (self.refresh_cached_reply if refresh else self.summarize)(row, agents)
+                    (self.refresh_cached_reply if refresh else self.assess_handoff)(row, agents)
                 break
         with self.hub.db() as db:
             db.execute("DELETE FROM assistant_reports WHERE json_extract(value,'$.created')<?", (self.clock() - 30 * 86400,))

@@ -51,8 +51,14 @@ def notification_text(value, count):
     body = f'{count} new agent {"update" if count == 1 else "updates"}. Open your hub to review.'
     if not labels:
         return 'Agent Hub', body
-    if total == 1 and count == 1:
-        return labels[0], 'New update. Tap to open.'
+    if total == 1:
+        status = {'done': 'Reply ready.', 'waiting': 'Needs your input.',
+                  'blocked': 'Needs help to continue.', 'exited': 'Stopped unexpectedly.',
+                  'connection': 'Host offline. Cached updates are available.'}.get(value.get('kind'))
+        if status:
+            return labels[0], status + ' Tap to open.'
+        if count == 1:
+            return labels[0], 'New update. Tap to open.'
     body = '\n'.join(labels[:3])
     if total > min(3, len(labels)):
         body += f'\n+{total - min(3, len(labels))} more agents'
@@ -251,8 +257,15 @@ class Relay:
         if not isinstance(notice, str) or (notice and not re.fullmatch(r'[a-zA-Z0-9_-]{1,100}', notice)):
             raise ValueError('Invalid notice ID')
         title, body = notification_text(value, count)
+        scope = re.sub(r'(:@\d+):\d*$', r'\1', agent)
+        tag = 'agent-' + digest(scope) if agent else batch
+        quiet = value.get('quiet') is True
         payload = {"title": title, "body": body,
-                   "url": self.config["hub_url"] + "/?" + urlencode({"updates": "1", "agent": agent, **({'notice': notice} if notice else {})}), "id": batch}
+                   "url": self.config["hub_url"] + "/?" + urlencode({"updates": "1", "agent": agent, **({'notice': notice} if notice else {})}),
+                   # Older installed workers use id as the notification tag.
+                   # Group routine replies there too; decisions keep a fresh id.
+                   "id": tag if agent and value.get('kind') == 'done' else batch,
+                   'tag': tag, 'quiet': quiet}
         with self.publish_lock:
             with self.db() as db:
                 rows = [dict(row) for row in db.execute("SELECT * FROM devices")]

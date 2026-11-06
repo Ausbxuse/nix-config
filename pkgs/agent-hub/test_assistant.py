@@ -157,7 +157,7 @@ class AssistantTests(unittest.TestCase):
 
     def test_generic_push_does_not_wait_for_summary_but_keeps_attention_policy(self):
         row=dict(created=self.now,kind='done',agent_id=self.agent['id'])
-        self.assertFalse(self.assistant.may_interrupt(row))
+        self.assertTrue(self.assistant.may_interrupt(row))
         self.assertTrue(self.assistant.may_interrupt(row,wait_for_summary=False))
         self.assertTrue(self.assistant.may_interrupt(row,{'status':'thinking'},wait_for_summary=False))
         self.assertFalse(self.assistant.may_interrupt(row,{'status':'superseded'},wait_for_summary=False))
@@ -395,10 +395,10 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(report['status'], 'ready')
         self.assertTrue(report['original_reply'])
         item = self.hub.watcher.notice(notice['id'])
-        self.assertEqual(item['body'], self.reply['text'])
-        self.assertTrue(item['original_reply'])
+        self.assertEqual(item['body'], 'The turn ended. Review the response.')
+        self.assertNotIn('assistant_summary', item)
         self.assertTrue(item['interrupt'])
-        self.assertEqual([s['message_id'] for s in item['sources']], ['reply-old'])
+        self.assertEqual([s['message_id'] for s in self.assistant.reports()[notice['id']]['sources']], ['reply-old'])
         self.assistant.model.assert_not_called()
         self.assertEqual(self.assistant.setting('model_calls', []), [])
 
@@ -421,13 +421,13 @@ class AssistantTests(unittest.TestCase):
         self.assistant.model = self.model(summary='', relevant_ids=[record['id']], focus_relevant=True)
         self.assistant.tick()
         self.assertTrue(self.assistant.model.call_args.args[0]['preserve_reply'])
-        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], self.reply['text'])
+        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], 'The turn ended. Review the response.')
         self.assertTrue(self.hub.watcher.notice(notice['id'])['interrupt'])
         self.assertEqual(self.assistant.reports()[notice['id']]['relevant_ids'], [record['id']])
         self.change(action='attention', mode='focus', text='An unrelated study')
         self.assistant.model = self.model(summary='Do not use this paraphrase.', focus_relevant=False)
         self.assistant.tick()
-        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], self.reply['text'])
+        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], 'The turn ended. Review the response.')
         self.assertFalse(self.hub.watcher.notice(notice['id'])['interrupt'])
 
     def test_summary_that_does_not_reduce_reading_keeps_original_reply(self):
@@ -452,8 +452,8 @@ class AssistantTests(unittest.TestCase):
         self.assistant.model.reset_mock()
         self.assistant.tick()
         item=self.hub.watcher.notice(notice['id'])
-        self.assertEqual(item['body'],self.reply['text'])
-        self.assertTrue(item['original_reply'])
+        self.assertEqual(item['body'], 'The turn ended. Review the response.')
+        self.assertNotIn('assistant_summary', item)
         self.assistant.model.assert_not_called()
 
     def test_short_reply_works_when_summary_budget_is_exhausted(self):
@@ -462,7 +462,7 @@ class AssistantTests(unittest.TestCase):
         notice = self.notice()
         self.assistant.model = self.model()
         self.assistant.tick()
-        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], self.reply['text'])
+        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], 'The turn ended. Review the response.')
         self.assistant.model.assert_not_called()
         self.long_reply()
         self.assistant.summarize(notice, [self.agent])
@@ -479,6 +479,7 @@ class AssistantTests(unittest.TestCase):
                 self.assistant.summarize(notice, [self.agent])
                 report = self.assistant.reports()[notice['id']]
                 report.pop('original_reply')
+                report.pop('summary_requested', None)
                 report['short_reply_words'] = 100
                 report['summary'] = 'An existing cached summary.'
                 self.assistant.put('assistant_reports', report)
@@ -486,8 +487,8 @@ class AssistantTests(unittest.TestCase):
                 self.assistant.tick()
                 self.assistant.model.assert_not_called()
                 item = self.hub.watcher.notice(notice['id'])
-                self.assertEqual(item['body'], 'An existing cached summary.' if long else self.reply['text'])
-                self.assertEqual(item['original_reply'], not long)
+                self.assertEqual(item['body'], 'The turn ended. Review the response.')
+                self.assertNotIn('assistant_summary', item)
                 self.assertEqual(len(self.hub.watcher.state()['items']), 1)
 
     def test_moderate_claude_reply_is_preserved_without_a_summary(self):
@@ -500,7 +501,7 @@ class AssistantTests(unittest.TestCase):
         notice = self.notice()
         self.assistant.model = self.model()
         self.assistant.tick()
-        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], self.reply['text'])
+        self.assertEqual(self.hub.watcher.notice(notice['id'])['body'], 'The turn ended. Review the response.')
         self.assistant.model.assert_not_called()
 
     def test_old_claude_summary_uses_its_own_short_source_not_a_newer_reply(self):
@@ -572,11 +573,41 @@ class AssistantTests(unittest.TestCase):
                 self.assertEqual(self.assistant.reports()[notice['id']]['status'], 'superseded')
         self.assistant.model.assert_not_called()
 
-    def test_handoff_gets_one_short_source_linked_summary_not_every_poll(self):
+    def test_long_replies_never_trigger_an_unsolicited_summary(self):
+        self.long_reply()
+        original = self.reply['text']
+        notice = self.notice()
+        self.assistant.model = self.model()
+        for _ in range(3):
+            self.assistant.tick()
+            self.now += 3
+        self.assistant.model.assert_not_called()
+        self.assertEqual(self.reply['text'], original)
+        report = self.assistant.reports()[notice['id']]
+        self.assertFalse(report['summary_requested'])
+        self.assertEqual(report['summary'], '')
+        self.assertNotIn('assistant_summary', self.hub.watcher.notice(notice['id']))
+        item = dict(id=report['handoff_id'], agent_id=self.agent['id'], created=self.now,
+                    kind='done', preferred=False, deferred_until=0)
+        self.assertNotIn('brief', self.assistant.enrich_handoffs([item])[0])
+
+    def test_cached_automatic_summary_is_hidden_without_rewriting_history(self):
+        notice = self.notice()
+        self.assistant.summarize(notice, [self.agent])
+        report = self.assistant.reports()[notice['id']]
+        report.pop('summary_requested')
+        report['summary'] = 'Old automatic summary.'
+        self.assistant.put('assistant_reports', report)
+        self.assertNotIn('assistant_summary', self.hub.watcher.notice(notice['id']))
+        self.assertEqual(self.assistant.reports()[notice['id']]['summary'], 'Old automatic summary.')
+        schema = json.loads((Path(__file__).parent / 'handoff-match-schema.json').read_text())
+        self.assertEqual(schema['properties']['summary']['const'], '')
+
+    def test_explicit_request_gets_one_source_linked_summary(self):
         self.long_reply()
         notice = self.notice()
         self.assistant.model = self.model()
-        self.assistant.tick()
+        self.assistant.summarize(notice, [self.agent])
         first = self.hub.watcher.state()['items'][0]
         self.assertTrue(first['assistant_summary'])
         self.assertIn('0.4', first['body'])
@@ -631,8 +662,9 @@ class AssistantTests(unittest.TestCase):
         self.assistant.summarize(notice, [self.agent])
         self.assertEqual(self.assistant.reports()[notice['id']]['status'], 'superseded')
 
-    def test_retry_is_bounded_and_ui_falls_back_after_timeout(self):
+    def test_watch_matching_retry_is_bounded(self):
         self.long_reply()
+        self.remember("Watch the NeMo comparison")
         notice = self.notice()
         self.assistant.model = Mock(side_effect=BridgeError('model unavailable'))
         for _ in range(5):
@@ -667,7 +699,7 @@ class AssistantTests(unittest.TestCase):
         self.assistant.tick()
         self.now += 500
         item = self.hub.watcher.notice(notice['id'])
-        self.assertTrue(item['assistant_summary'])  # History remains readable.
+        self.assertNotIn('assistant_summary', item)  # Source history remains available.
         self.assertFalse(item['interrupt'])
 
     def test_held_partial_retry_batch_does_not_starve_new_focus_updates(self):

@@ -174,6 +174,25 @@ class RelayTests(unittest.TestCase):
             self.assertEqual(query['notice'],['notice_123'])
             self.assertEqual(payload['id'],'named')
 
+    def test_status_and_replacement_card_keep_exact_destinations_private(self):
+        self.enroll()
+        with patch('server.webpush', return_value=Mock(status_code=201)) as send:
+            cards = []
+            for index, (kind, quiet) in enumerate((('done', False), ('done', True), ('waiting', False))):
+                self.relay.publish({'id': 'notice-' + str(index), 'count': 1,
+                    'agent_id': 'gpu:%3:100:@3:' + str(200 + index), 'notice_id': 'reply-' + str(index),
+                    'agents': [{'name': 'Policy eval', 'host': 'gpu004'}], 'kind': kind, 'quiet': quiet,
+                    'body': 'PRIVATE RESULT', 'title': 'PRIVATE TITLE'})
+                cards.append(json.loads(send.call_args.kwargs['data']))
+            self.assertEqual(len({card['tag'] for card in cards}), 1)
+            self.assertEqual(cards[0]['id'], cards[1]['id'])
+            self.assertNotEqual(cards[1]['id'], cards[2]['id'])
+            self.assertEqual(cards[0]['body'], 'Reply ready. Tap to open.')
+            self.assertEqual(cards[2]['body'], 'Needs your input. Tap to open.')
+            self.assertEqual([card['quiet'] for card in cards], [False, True, False])
+            self.assertIn('notice=reply-2', cards[2]['url'])
+            self.assertNotIn('PRIVATE', json.dumps(cards))
+
     def test_grouped_preview_lists_hosts_and_remaining_agents(self):
         title,body=notification_text({'agents':[
             {'name':'NeMo','host':'razy'}, {'name':'NeMo','host':'gpu-004'}, {'name':'Motion trace','host':'gpu-004'}],

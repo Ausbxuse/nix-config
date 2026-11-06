@@ -1,0 +1,80 @@
+/*
+ * The Valkrie theme: the same warm neutrals, single violet accent and Inter type as the Valkrie
+ * app, light or dark with the device. Loaded last; "Classic" in Appearance turns it off.
+ */
+@font-face { font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url("/assets/Inter.woff2") format("woff2"); }
+@font-face { font-family:"JetBrains Mono";font-style:normal;font-weight:100 800;font-display:swap;src:url("/assets/JetBrainsMono.woff2") format("woff2"); }
+
+:root[data-theme=valkrie] {
+  color-scheme:light;
+  --bg:#faf9f6;--surface:#ffffff;--raised:#f2f0eb;--hover:#ecebe5;--line:#e6e3dc;
+  --text:#1c1b22;--muted:#5f5c68;--faint:#8a8794;
+  --cyan:#3b2db8;--purple:#3b2db8;--on-accent:#ffffff;
+  --sage:#2f7d4f;--gold:#a86a12;--amber:#a86a12;--peach:#b5562b;--rose:#c0394e;
+  --code-bg:#f5f3ee;--code-text:#2a2833;--shade:#1c1b2214;--scrim:#1c1b2240;
+  --syntax-keyword:#6a3fc8;--syntax-string:#2f7d4f;--syntax-property:#1f6f8b;
+  --syntax-function:#2b5fb8;--syntax-type:#a86a12;--syntax-number:#b5562b;--syntax-variable:#c0394e;
+  --ui:"Inter",-apple-system,"Segoe UI",Roboto,sans-serif;--font:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --accent-soft:color-mix(in srgb,var(--cyan) 9%,transparent);
+  --accent-line:color-mix(in srgb,var(--cyan) 22%,transparent);
+}
+@media (prefers-color-scheme:dark) {
+  :root[data-theme=valkrie] {
+    color-scheme:dark;
+    --bg:#151419;--surface:#1e1d23;--raised:#24232a;--hover:#2c2b33;--line:#2a2930;
+    --text:#e9e7ef;--muted:#b3b0be;--faint:#8d8a99;
+    --cyan:#a498ff;--purple:#a498ff;--on-accent:#151419;
+    --sage:#8cc79f;--gold:#e2b86b;--amber:#e2b86b;--peach:#e8a07e;--rose:#efa3b0;
+    --code-bg:#1a191f;--code-text:#dcdae4;--shade:#00000055;--scrim:#00000080;
+    --syntax-keyword:#c3b6ff;--syntax-string:#a9d4b2;--syntax-property:#94d2e6;
+    --syntax-function:#a9c4ff;--syntax-type:#ecd09a;--syntax-number:#f2b796;--syntax-variable:#f4b9c4;
+  }
+}
+/* The font picker still works on top of the theme. */
+:root[data-theme=valkrie][data-font=maple] { --ui:"Inter",-apple-system,"Segoe UI",Roboto,sans-serif; }
+:root[data-theme=valkrie][data-font=mono] { --ui:"JetBrains Mono",ui-monospace,monospace; }
+:root[data-theme=valkrie][data-contrast=high] { --muted:var(--text);--faint:var(--muted);--line:color-mix(in srgb,var(--text) 22%,transparent); }
+
+/* Type: Inter at Valkrie's sizes, a touch more air than the mono layout needed. */
+:root[data-theme=valkrie] body { letter-spacing:-0.005em;font-feature-settings:"cv11","ss01"; }
+:root[data-theme=valkrie] :is(h1,#focus-title) { letter-spacing:-0.01em; }
+:root[data-theme=valkrie] :is(code,pre,kbd,.md-code-block,.reader-code) { font-family:var(--font); }
+
+/* Surfaces: header and drawer on the page colour with hairlines, as in the app. */
+:root[data-theme=valkrie] .app-shell>.masthead { background:var(--bg); }
+:root[data-theme=valkrie] #agent-drawer .host-group-heading { background:var(--raised); }
+:root[data-theme=valkrie] :is(#workspace-menu-items,#defer-menu>div,.asset-preview) { border-color:var(--line);box-shadow:0 8px 28px var(--shade); }
+:root[data-theme=valkrie] dialog { box-shadow:0 20px 60px var(--shade); }
+:root[data-theme=valkrie] :is(dialog,.asset-preview,#image-lightbox)::backdrop { background:var(--scrim); }
+:root[data-theme=valkrie] .toast { box-shadow:0 4px 18px var(--shade); }
+:root[data-theme=valkrie] .usage-providers { background:var(--raised); }
+:root[data-theme=valkrie] ::selection { background:color-mix(in srgb,var(--cyan) 22%,transparent);color:inherit; }
+:root[data-theme=valkrie] * { scrollbar-color:color-mix(in srgb,var(--faint) 45%,transparent) transparent; }
+
+/* The one accent: filled buttons in violet with white (or dark) text. */
+:root[data-theme=valkrie] :is(.primary-button,#send-agent,#send-supervisor) { color:var(--on-accent); }
+:root[data-theme=valkrie] :is(.primary-button,#send-agent,#send-supervisor):hover:not(:disabled) { background:color-mix(in srgb,var(--cyan) 88%,var(--text)); }
+:root[data-theme=valkrie] #focus-composers { --composer-line:var(--line); }
+:root[data-theme=valkrie] #focus-composers:focus-within>.composer-surface>rect { stroke:var(--accent-line); }
+:root[data-theme=valkrie] .running-ring { border-color:var(--accent-line);border-top-color:var(--cyan); }
+:root[data-theme=valkrie] :is(.queue-next,#agent-drawer .search-box:focus-within) { background:var(--accent-soft);box-shadow:none; }
+:root[data-theme=valkrie] .queue-next b { background:var(--accent-soft); }
+
+/* Messages: yours on the soft accent, like Valkrie's chat; replies on the page. */
+:root[data-theme=valkrie] :is(.reader-user .reader-prose,.agent-message-bubble .message-text,.chat-message.user .message-text) { background:var(--accent-soft);border-color:transparent; }
+:root[data-theme=valkrie] :is(.reader-prose,.rich-message) strong { color:var(--text); }
+:root[data-theme=valkrie] :is(.reader-prose,.rich-message) :not(pre)>code { background:var(--raised);color:var(--text); }
+:root[data-theme=valkrie] :is(.reader-prose,.rich-message) a { --link-color:var(--cyan); }
+:root[data-theme=valkrie] :is(.reader-prose,.rich-message) a.md-file-link,:root[data-theme=valkrie] .md-file-reference { --link-color:var(--sage);color:var(--sage); }
+
+/* Code and tables. */
+:root[data-theme=valkrie] :is(.md-code-block,.md-diagram,.reader-code) { background:var(--code-bg);border-color:var(--line); }
+:root[data-theme=valkrie] :is(.md-code-block pre code,.diagram-source code) { color:var(--code-text); }
+:root[data-theme=valkrie] .code-toolbar { background:transparent;border-bottom-color:var(--line); }
+:root[data-theme=valkrie] .code-toolbar button:is(:hover,:focus-visible) { background:var(--hover); }
+:root[data-theme=valkrie] :is(.md-table th,.reader-table th) { background:var(--raised); }
+:root[data-theme=valkrie] .asset-preview-body>:is(img,video,pre) { background:var(--code-bg); }
+:root[data-theme=valkrie] .diagram-dialog { background:var(--surface);color:var(--text);border-color:var(--line); }
+
+/* Voice keeps its glow, in Valkrie's green. */
+:root[data-theme=valkrie] #voice-aura { border-color:color-mix(in srgb,var(--sage) 55%,transparent); }
