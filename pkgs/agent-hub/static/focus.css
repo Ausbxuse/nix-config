@@ -797,3 +797,6 @@ dialog::backdrop { background:#0b0d1960;backdrop-filter:blur(3px); }
 }
 :root[data-motion=reduce] *,:root[data-motion=reduce] *::before,:root[data-motion=reduce] *::after { animation:none!important;transition:none!important;scroll-behavior:auto!important; }
 @media(prefers-reduced-motion:reduce) { :root:not([data-motion=full]) *,:root:not([data-motion=full]) *::before,:root:not([data-motion=full]) *::after { animation:none!important;transition:none!important; } }
+
+/* CLI events (context compacted, a turn interrupted): one quiet line, not a message. */
+.reader-note { margin:0;color:var(--faint);font-size:var(--type-caption);font-style:italic; }

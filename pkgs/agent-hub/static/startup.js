@@ -14,7 +14,10 @@
   function check(){
     if(done || scheduled || !ready())return;
     scheduled=true;
-    requestAnimationFrame(()=>{
+    // A frame keeps the reveal smooth; the timer covers views that get no frames (a background WebView).
+    let fired=false;
+    const reveal=()=>{
+      if(fired)return;fired=true;
       scheduled=false;
       if(!ready())return;
       done=true;clearTimeout(timer);
@@ -22,7 +25,8 @@
       screen.setAttribute('data-ready','');
       // Retain the same DOM and measured reading position through the reveal.
       setTimeout(()=>{screen.hidden=true;},180);
-    });
+    };
+    requestAnimationFrame(reveal);setTimeout(reveal,250);
   }
   window.HubStartup={check,waiting};
   window.addEventListener('error',event=>{

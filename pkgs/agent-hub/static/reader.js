@@ -408,12 +408,13 @@
     if(!visibleMessage(message))return '';
     const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : "unknown";
     const continuation = index > 0 && role !== "unknown" && messages[index - 1].role === message.role && (role !== "tool" || messages[index - 1].kind === message.kind);
-    const label = role === "tool" ? ({command:"Command", "command-output":"Command output", "task-update":"Task update"}[message.kind] || "Tool") : {user: "You", assistant: "Agent", unknown: "Message"}[role];
+    const label = role === "tool" ? ({command:"Command", "command-output":"Command output", "task-update":"Task update", compaction:"Context", interrupt:"Interrupted"}[message.kind] || "Tool") : {user: "You", assistant: "Agent", unknown: "Message"}[role];
     const date = new Date(message.created);
     const newDay = !index || date.toDateString() !== new Date(messages[index - 1].created).toDateString();
     const time = message.created && !Number.isNaN(date.getTime()) ? `<time datetime="${escape(date.toISOString())}" title="${escape(date.toLocaleString([], {hourCycle:"h23"}))}">${escape(date.toLocaleString([], {...(newDay ? {month:"short",day:"numeric"} : {}),hour:"2-digit",minute:"2-digit",hourCycle:"h23"}))}</time>` : "";
     const edit = role === "user" && message.fork ? `<button type="button" class="icon-button edit-message" data-edit-message="${escape(message.id)}" aria-label="Edit message" title="Edit into a new branch"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>` : "";
-    const body=role==='tool'?`<pre class="reader-command" tabindex="0"><code class="terminal-syntax">${terminal(message.text,message.kind==='command'?'command':'output')}</code></pre>`:role==='user'?(root.HubImages?.html(message.attachments)||'')+userHTML(content.displayText(message),root.HubMarkdown.render):root.HubMarkdown.render(message.text);
+    const note=role==='tool' && (message.kind==='compaction' || message.kind==='interrupt');
+    const body=note?`<p class="reader-note">${escape(message.text)}</p>`:role==='tool'?`<pre class="reader-command" tabindex="0"><code class="terminal-syntax">${terminal(message.text,message.kind==='command'?'command':'output')}</code></pre>`:role==='user'?(root.HubImages?.html(message.attachments)||'')+userHTML(content.displayText(message),root.HubMarkdown.render):root.HubMarkdown.render(message.text);
     return `<section class="reader-entry reader-${role}${continuation ? " reader-continuation" : ""}" data-message-id="${escape(role + ':' + (message.id ?? index))}" data-message-role="${role}"${message.asset_agent_id?` data-agent-id="${escape(message.asset_agent_id)}"`:''}${message.phase?` data-message-phase="${escape(message.phase)}"`:''} aria-label="${label}">${heading(label, time, edit)}<div class="reader-prose">${role==='assistant'&&!isCommentary(message)?replyHTML(body,message.text,role+':'+(message.id??index)):body}</div></section>`;
   }
   function historyHTML(blocks) {

@@ -960,3 +960,5 @@
   $('voice-next').onclick=()=>runVoiceCommand('ARIA, next');$('voice-later').onclick=()=>runVoiceCommand('ARIA, later');
   if(state.snapshot)render();
 })();
+// Inside the Valkrie app: back to LESLEY's chat.
+document.getElementById('valkrie-chat')?.addEventListener('click',()=>window.ValkrieApp?.chat());

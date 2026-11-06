@@ -19,7 +19,7 @@
   --accent-line:color-mix(in srgb,var(--cyan) 22%,transparent);
 }
 @media (prefers-color-scheme:dark) {
-  :root[data-theme=valkrie] {
+  :root[data-theme=valkrie]:not([data-scheme=light]) {
     color-scheme:dark;
     --bg:#151419;--surface:#1e1d23;--raised:#24232a;--hover:#2c2b33;--line:#2a2930;
     --text:#e9e7ef;--muted:#b3b0be;--faint:#8d8a99;
@@ -29,6 +29,17 @@
     --syntax-keyword:#c3b6ff;--syntax-string:#a9d4b2;--syntax-property:#94d2e6;
     --syntax-function:#a9c4ff;--syntax-type:#ecd09a;--syntax-number:#f2b796;--syntax-variable:#f4b9c4;
   }
+}
+/* Inside the Valkrie app, the app says which: its own light or dark, not the WebView's guess. */
+:root[data-theme=valkrie][data-scheme=dark] {
+  color-scheme:dark;
+  --bg:#151419;--surface:#1e1d23;--raised:#24232a;--hover:#2c2b33;--line:#2a2930;
+  --text:#e9e7ef;--muted:#b3b0be;--faint:#8d8a99;
+  --cyan:#a498ff;--purple:#a498ff;--on-accent:#151419;
+  --sage:#8cc79f;--gold:#e2b86b;--amber:#e2b86b;--peach:#e8a07e;--rose:#efa3b0;
+  --code-bg:#1a191f;--code-text:#dcdae4;--shade:#00000055;--scrim:#00000080;
+  --syntax-keyword:#c3b6ff;--syntax-string:#a9d4b2;--syntax-property:#94d2e6;
+  --syntax-function:#a9c4ff;--syntax-type:#ecd09a;--syntax-number:#f2b796;--syntax-variable:#f4b9c4;
 }
 /* The font picker still works on top of the theme. */
 :root[data-theme=valkrie][data-font=maple] { --ui:"Inter",-apple-system,"Segoe UI",Roboto,sans-serif; }
@@ -78,3 +89,23 @@
 
 /* Voice keeps its glow, in Valkrie's green. */
 :root[data-theme=valkrie] #voice-aura { border-color:color-mix(in srgb,var(--sage) 55%,transparent); }
+
+/* The drawer (≡) on the theme's surface, light or dark. */
+:root[data-theme=valkrie] #agent-drawer { background:var(--surface);border-right-color:var(--line); }
+:root[data-theme=valkrie] #agent-drawer .search-box { background:var(--raised);border-color:transparent; }
+
+/*
+ * Inside the Valkrie app (LESLEY → Agents): a screen of the app, not a page in a frame. The
+ * app's own bar is above, so the hub's bar sits flush on the same background without a rule,
+ * and text uses the app's sizes and 20px margins.
+ */
+:root[data-embed=valkrie] { --type-body:0.97rem; }
+:root[data-embed=valkrie] .app-shell>.masthead { background:var(--bg);border-bottom:0;padding-inline:12px 8px; }
+:root[data-embed=valkrie] .agent-reader { padding-inline:max(20px,calc((100% - var(--reading-width))/2)); }
+:root[data-embed=valkrie] #focus-composers { width:calc(100% - 24px);margin-bottom:8px; }
+:root[data-embed=valkrie] body { background:var(--bg); }
+:root[data-theme=valkrie] [data-host-tone="2"] { --host-color:var(--syntax-property); }
+
+/* Inside the app, the way back to LESLEY's chat lives in the hub's own bar. */
+#valkrie-chat { display:none!important; }
+:root[data-embed=valkrie] #valkrie-chat { display:inline-flex!important;color:var(--cyan); }

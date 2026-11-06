@@ -1,8 +1,8 @@
 /* Apply local appearance before first paint; no account or server state involved. */
 ((root) => {
   const storageKey = 'hub-appearance-v1';
-  const defaults = Object.freeze({size:100,font:'maple',spacing:'default',contrast:'default',motion:'full'});
-  const choices = {font:['maple','sans','mono'],spacing:['compact','default','relaxed'],contrast:['default','high'],motion:['full','subtle','system','reduce']};
+  const defaults = Object.freeze({size:100,theme:'valkrie',font:'maple',spacing:'default',contrast:'default',motion:'full'});
+  const choices = {theme:['valkrie','classic'],font:['maple','sans','mono'],spacing:['compact','default','relaxed'],contrast:['default','high'],motion:['full','subtle','system','reduce']};
   function normalize(value) {
     const input = value && typeof value === 'object' ? value : {};
     const size = typeof input.size === 'number' && Number.isFinite(input.size) ? Math.round(input.size / 5) * 5 : defaults.size;
@@ -48,6 +48,9 @@
     document.documentElement.style.setProperty('--text-scale',String(next.size / 100));
     document.documentElement.dataset.largeText = String(next.size > 110);
     for (const key of Object.keys(choices)) document.documentElement.dataset[key] = next[key];
+    // The browser's own chrome follows the page colour.
+    const meta = document.querySelector('meta[name=theme-color]');
+    if (meta) meta.content = next.theme === 'valkrie' ? (root.matchMedia?.('(prefers-color-scheme: dark)').matches ? '#151419' : '#faf9f6') : '#1e2233';
     const changed = applied && JSON.stringify(applied) !== JSON.stringify(next);
     applied = next;
     if (changed) root.dispatchEvent(new CustomEvent('hub-appearance-change',{detail}));

@@ -9,6 +9,9 @@
   <style>
     html[data-starting],html[data-starting] body{margin:0;background:var(--bg,#1e2233)}
     html[data-starting]{overflow:hidden}
+    :root[data-theme=valkrie]{--bg:#faf9f6;--muted:#5f5c68;--cyan:#3b2db8;--surface:#f2f0eb}
+    @media(prefers-color-scheme:dark){:root[data-theme=valkrie]:not([data-scheme=light]){--bg:#151419;--muted:#b3b0be;--cyan:#a498ff;--surface:#24232a}}
+    :root[data-theme=valkrie][data-scheme=dark]{--bg:#151419;--muted:#b3b0be;--cyan:#a498ff;--surface:#24232a}
     html[data-starting] .app-shell{visibility:hidden!important}
     #startup{position:fixed;inset:0;z-index:1000;display:grid;place-content:center;justify-items:center;gap:16px;padding:24px;box-sizing:border-box;background:var(--bg,#1e2233);color:var(--muted,#adb1c7);font:400 .8125rem/1.5 var(--ui,ui-monospace,monospace);text-align:center;opacity:1;transition:opacity .16s ease}
     #startup[hidden]{display:none}
@@ -26,7 +29,8 @@
     @media(prefers-reduced-motion:reduce){:root:not([data-motion=full]) .loading-dots i{animation:none;opacity:.6}:root:not([data-motion=full]) #startup{transition:none}}
   </style>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/assets/MapleMono-UI-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/Inter.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/secure-shim.js"></script>
   <script src="/appearance.js"></script>
   <script src="/startup.js" defer></script>
   <link rel="stylesheet" href="/style.css">
@@ -63,6 +67,7 @@
   <link rel="stylesheet" href="/focus.css">
   <link rel="stylesheet" href="/research.css">
   <link rel="stylesheet" href="/appearance.css">
+  <link rel="stylesheet" href="/valkrie.css">
 </head>
 <body>
   <section id="startup" aria-label="Loading workspace">
@@ -113,6 +118,7 @@
         </summary>
         <section id="quota-popover" aria-label="Usage details"><div class="quota-heading"><strong>Usage</strong><button id="quota-close" type="button" class="icon-button" aria-label="Close usage details"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div><div id="quota-details"></div><button id="quota-all" type="button">All hosts <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></section>
       </details>
+      <button id="valkrie-chat" type="button" class="icon-button" aria-label="Chat with LESLEY" title="Chat with LESLEY"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg></button>
       <button id="refresh-workspace" type="button" class="icon-button" aria-label="Refresh" title="Refresh hosts and conversation"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
       <details class="workspace-menu"><summary class="icon-button" aria-label="Workspace actions" title="More"><svg class="icon"><use href="#i-more"/></svg></summary><div id="workspace-menu-items"><button id="focus-settings">Settings &amp; usage</button><button id="focus-history">Update history</button><button id="focus-priority">Set priority</button><button id="focus-new">New agent</button></div></details>
       <strong class="app-name">Agent Hub</strong><strong id="mobile-page-title" class="mobile-only">ARIA</strong><div class="clock"><time id="clock-time"></time><span id="clock-date"></span></div>
@@ -174,7 +180,8 @@
           <section class="status-section" id="appearance-settings" aria-labelledby="appearance-title">
             <header class="appearance-heading"><h2 id="appearance-title">Appearance</h2><button type="button" id="appearance-reset" class="text-button" disabled>Reset</button></header>
             <div class="appearance-row"><label for="appearance-size">Text size</label><div class="appearance-size-control"><input id="appearance-size" data-appearance="size" type="range" min="85" max="130" step="5" value="100"><output id="appearance-size-value" for="appearance-size">100%</output></div></div>
-            <div class="appearance-row"><label for="appearance-font">Font</label><select id="appearance-font" data-appearance="font"><option value="maple">Maple Mono</option><option value="sans">System sans</option><option value="mono">System mono</option></select></div>
+            <div class="appearance-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" data-appearance="theme"><option value="valkrie">Valkrie</option><option value="classic">Classic</option></select></div>
+            <div class="appearance-row"><label for="appearance-font">Font</label><select id="appearance-font" data-appearance="font"><option value="maple">Theme font</option><option value="sans">System sans</option><option value="mono">System mono</option></select></div>
             <div class="appearance-row"><label for="appearance-spacing">Spacing</label><select id="appearance-spacing" data-appearance="spacing"><option value="compact">Compact</option><option value="default">Default</option><option value="relaxed">Relaxed</option></select></div>
             <div class="appearance-row"><label for="appearance-contrast">Contrast</label><select id="appearance-contrast" data-appearance="contrast"><option value="default">Default</option><option value="high">Higher</option></select></div>
             <div class="appearance-row"><label for="motion-preference">Motion</label><select id="motion-preference" data-appearance="motion"><option value="full">Full</option><option value="subtle">Gentle</option><option value="system">Follow device</option><option value="reduce">Off</option></select></div>
