@@ -20,8 +20,8 @@
 
   # The unit only starts on hosts with a private node.json configuration.
   services.agent-hub.enable = true;
-  services.agent-hub.backup.enable = hostname == "razy";
-  # razy is a worker timy can't reach: it opens the way to timy itself.
+  # timy is the only controller. razy is a worker timy can't reach: it opens the way to
+  # timy itself (its hub listens on loopback only; set up once with join-over-ssh.sh).
   services.agent-hub.uplink.enable = hostname == "razy";
 
   xdg.configFile."nix/nix.conf".text = ''
