@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import Mock
 
-from notifications import Watcher, short_update, SEEN_GRACE
+from notifications import Watcher, short_update, SEEN_GRACE, MISSING_AGENT_DELAY
 
 
 class FakeHub:
@@ -401,7 +401,7 @@ class WatchTests(unittest.TestCase):
         self.tick(10)
         self.snapshot['agents'] = []
         self.watch.emit = Mock(wraps=self.watch.emit)
-        for _ in range(5):
+        for _ in range(MISSING_AGENT_DELAY + 10):
             self.tick(1)
         self.assertEqual(self.watch.emit.call_count, 1)
         with self.hub.db() as db:
