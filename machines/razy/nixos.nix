@@ -294,26 +294,25 @@ in {
     script = ''
       set -eu
 
-      host=127.0.0.1:11434
+      # ollama-agent listens on localhost; LESLEY's Ollama only on the tailnet.
+      for host in 127.0.0.1:11434 100.64.0.1:11434; do
+        models="$(
+          curl -fsS --max-time 2 "http://$host/api/ps" \
+            | jq -r '.models[]?.name' \
+            || true
+        )"
 
-      models="$(
-        curl -fsS --max-time 2 "http://$host/api/ps" \
-          | jq -r '.models[]?.name' \
-          || true
-      )"
+        [ -n "$models" ] || continue
 
-      if [ -z "$models" ]; then
-        exit 0
-      fi
-
-      printf '%s\n' "$models" | while IFS= read -r model; do
-        [ -n "$model" ] || continue
-        jq -nc --arg model "$model" '{model: $model, prompt: "", keep_alive: 0}' \
-          | curl -fsS --max-time 15 -X POST "http://$host/api/generate" \
-              -H 'Content-Type: application/json' \
-              --data-binary @- \
-              >/dev/null \
-          || true
+        printf '%s\n' "$models" | while IFS= read -r model; do
+          [ -n "$model" ] || continue
+          jq -nc --arg model "$model" '{model: $model, prompt: "", keep_alive: 0}' \
+            | curl -fsS --max-time 15 -X POST "http://$host/api/generate" \
+                -H 'Content-Type: application/json' \
+                --data-binary @- \
+                >/dev/null \
+            || true
+        done
       done
     '';
   };
