@@ -193,6 +193,23 @@ class ClaudeSessionTests(unittest.TestCase):
         environment.write_bytes(environment.read_bytes().replace(b'%2', b'%3'))
         self.assertIsNone(self.sessions.binding(self.agent, self.connection))
 
+    def test_claude_under_a_shell_that_stays_in_front_is_bound(self):
+        # `zsh -lc 'claude …; exec zsh'`: the shell (100) leads the foreground group, Claude is its child in it.
+        for pid in [100, 123]:
+            stat = self.proc / str(pid) / 'stat'
+            stat.write_text(stat.read_text().replace('S 100 123 100 99 123 ', 'S 100 100 100 99 100 '))
+        children = self.proc / '100/task/100/children'
+        children.parent.mkdir(parents=True)
+        children.write_text('123 ')
+        agent = {**self.agent, 'foreground_pid': '100'}
+        self.assertEqual(self.sessions.binding(agent, self.connection)['session'], self.session)
+        children.write_text('')
+        self.assertIsNone(self.sessions.binding(agent, self.connection))
+        children.write_text('123 ')
+        stat = self.proc / '123/stat'
+        stat.write_text(stat.read_text().replace('S 100 100 ', 'S 100 123 '))  # its own group, in the background
+        self.assertIsNone(self.sessions.binding(agent, self.connection))
+
     def test_symlinks_and_malformed_registry_cannot_select_a_transcript(self):
         original = self.registry.read_text()
         self.registry.write_text('{')

@@ -31,9 +31,18 @@ class ClaudeSessions:
         if connection.get('kind') != 'local' or agent.get('runtime') != 'claude' or not agent.get('live'):
             return None
         try:
-            pid, pane_pid = int(agent['foreground_pid']), int(agent['pid'])
-            if pid <= 0 or pane_pid <= 0:
+            foreground, pane_pid = int(agent['foreground_pid']), int(agent['pid'])
+            if foreground <= 0 or pane_pid <= 0:
                 return None
+            pid = foreground
+            if not (self.root / 'sessions' / f'{pid}.json').exists():
+                # A shell started as `zsh -lc 'claude …; exec zsh'` leads the foreground group:
+                # Claude is its child in that group, and the registry is under Claude's PID.
+                children = (self.proc / str(foreground) / 'task' / str(foreground) / 'children').read_text().split()
+                found = [int(child) for child in children if (self.root / 'sessions' / f'{child}.json').exists()]
+                if len(found) != 1:
+                    return None
+                pid = found[0]
             path = self.root / 'sessions' / f'{pid}.json'
             stat = path.stat()
             if path.is_symlink() or not path.resolve().is_relative_to(self.root) or stat.st_size > 65_536 or stat.st_uid != os.getuid():
@@ -47,7 +56,9 @@ class ClaudeSessions:
             if not str(record.get('tmux', '')).endswith(f":{agent['window']}.{agent['pane']}"):
                 return None
             process, pane = self.process(pid), self.process(pane_pid)
-            if record.get('procStart') != process[19] or int(pane[5]) != pid or int(process[2]) != pid:
+            if record.get('procStart') != process[19] or int(pane[5]) != foreground or int(process[2]) != foreground:
+                return None
+            if pid != foreground and int(process[1]) != foreground:
                 return None
             if process[4] != pane[4] or int(process[4]) == 0:
                 return None
