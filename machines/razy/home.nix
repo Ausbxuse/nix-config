@@ -41,11 +41,19 @@ in {
     stopOnBattery = false;
   };
 
-  # Load Gemma as soon as the server answers, so her first reply after a
-  # reboot is quick too. Without Tailscale up yet, the bind fails and the
-  # service starts again shortly.
+  # At boot, wait for Tailscale to give razy its tailnet address (the only
+  # one Ollama listens on; before it, the bind fails), then load Gemma as soon
+  # as the server answers, so her first reply after a reboot is quick too.
   systemd.user.services.ollama = let
     cfg = config.services.ollama-agent;
+    tailnet = pkgs.writeShellScript "ollama-wait-for-tailnet" ''
+      for _ in $(${pkgs.coreutils}/bin/seq 300); do
+        ${pkgs.iproute2}/bin/ip -4 -o addr show | ${pkgs.gnugrep}/bin/grep -q " ${cfg.host}/" && exit 0
+        ${pkgs.coreutils}/bin/sleep 1
+      done
+      echo "no ${cfg.host} after 5 minutes" >&2
+      exit 1
+    '';
     warm = pkgs.writeShellScript "ollama-warm-gemma" ''
       url=http://${cfg.host}:${toString cfg.port}
       for _ in $(${pkgs.coreutils}/bin/seq 30); do
@@ -58,8 +66,9 @@ in {
   in {
     Unit.Description = lib.mkForce "Ollama (Gemma 4 for LESLEY on timy)";
     Service = {
+      ExecStartPre = "${tailnet}";
       ExecStartPost = "${warm}";
-      TimeoutStartSec = 180;
+      TimeoutStartSec = 480;
       RestartSec = lib.mkForce 10;
     };
   };
