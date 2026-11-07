@@ -80,4 +80,33 @@ in {
   programs.firefox.profiles.betterfox.extraConfig = lib.mkAfter ''
     user_pref("browser.uidensity", 1);
   '';
+
+  # razy's vital signs in Valkrie's drawer, like the other machines'. timy reads those over SSH,
+  # but may not reach razy, so razy sends its own to timy's server every 20 seconds: the lines
+  # of READ in valkrie's desktop/src/machines.rs (keep the two alike), nothing else.
+  systemd.user.services.valkrie-vitals = {
+    Unit.Description = "Valkrie: razy's vital signs, sent to timy's drawer";
+    Service = {
+      ExecStart = pkgs.writeShellScript "valkrie-vitals" ''
+        export PATH=${lib.makeBinPath [pkgs.coreutils pkgs.gawk pkgs.curl]}:/run/current-system/sw/bin
+        while :; do
+          {
+            awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{print "M",t,a}' /proc/meminfo
+            df -P -B1 "$HOME" | awk 'NR==2{print "D",$2,$4}'
+            awk '{print "L",$1,$2,$3}' /proc/loadavg
+            for h in /sys/class/hwmon/hwmon*; do
+              n=$(cat "$h/name" 2>/dev/null)
+              for t in "$h"/temp*_input; do [ -r "$t" ] && echo "T $n $(cat "$t")"; done
+            done
+            for b in /sys/class/power_supply/BAT*; do [ -r "$b/capacity" ] && echo "B $(cat "$b/capacity") $(cat "$b/status" 2>/dev/null)"; done
+            command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits | sed 's/^/G /'
+          } | curl -s -m 10 -o /dev/null --data-binary @- http://100.64.0.4:7878/machines/report || true
+          sleep 20
+        done
+      '';
+      Restart = "always";
+      RestartSec = 20;
+    };
+    Install.WantedBy = ["default.target"];
+  };
 }
