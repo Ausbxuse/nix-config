@@ -51,7 +51,9 @@ class ClaudeSessions:
             if not isinstance(record, dict) or record.get('pid') != pid or record.get('kind') != 'interactive':
                 return None
             session = str(uuid.UUID(record['sessionId']))
-            if record['sessionId'] != session or record.get('cwd') != agent.get('cwd'):
+            # (Compared as folders: one renamed while its agent works, the old name left as a link to
+            # it, is the old name in the registry and the new one in tmux.)
+            if record['sessionId'] != session or Path(record['cwd']).resolve() != Path(agent['cwd']).resolve():
                 return None
             if not str(record.get('tmux', '')).endswith(f":{agent['window']}.{agent['pane']}"):
                 return None

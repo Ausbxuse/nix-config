@@ -53,6 +53,17 @@ class ClaudeSessionTests(unittest.TestCase):
             stream.write(json.dumps(record) + '\n')
         return record['uuid']
 
+    def test_a_folder_renamed_under_its_agent_keeps_its_session(self):
+        # The registry keeps the name it started in, tmux the new one; the old is a link to the new.
+        moved = self.root / 'moved'
+        self.cwd.rename(moved)
+        self.cwd.symlink_to(moved, target_is_directory=True)
+        agent = {**self.agent, 'cwd': str(moved)}
+        self.record_message('user', 'Use the moved folder.')
+        identity = self.sessions.binding(agent, self.connection)
+        self.assertEqual(identity['session'], self.session)
+        self.assertTrue(self.reader.match(agent, '', connection=self.connection)['session_verified'])
+
     def test_same_text_in_rapid_turns_has_distinct_native_identity(self):
         terminal = dict(state='done', summary='Completed', activity_confirmed=False, completion_confirmed=True)
         first_user = self.record_message('user', 'Repeat the study.')
