@@ -109,4 +109,72 @@ in {
     };
     Install.WantedBy = ["default.target"];
   };
+
+  # What's sent to razy from your phone (Valkrie's Send), into ~/Downloads/Valkrie, a text onto
+  # the clipboard too: straight from the phone through Tailscale (Taildrop; razy's operator is you,
+  # see nixos.nix), and what waited on timy's Valkrie server while razy was off (its /inbox, asked
+  # every 20 seconds). It listens on nothing, and timy can't push here.
+  systemd.user.services.valkrie-receive = {
+    Unit.Description = "Valkrie: what's sent to razy, into ~/Downloads/Valkrie";
+    Service = {
+      ExecStart = pkgs.writeShellScript "valkrie-receive" ''
+        export PATH=${lib.makeBinPath [pkgs.coreutils pkgs.findutils pkgs.gnugrep pkgs.curl pkgs.jq pkgs.wl-clipboard pkgs.libnotify]}:/run/current-system/sw/bin
+        d="$HOME/Downloads/Valkrie"
+        hub=http://100.64.0.4:7878
+        mkdir -p "$d"
+        # A file that's come: a text ("Text from <who> <when>.txt", as the phone and timy name
+        # one) onto the clipboard, and a notification either way.
+        took() {
+          n=$(basename "$1")
+          case $n in
+            "Text from "*.txt)
+              who=''${n#Text from }
+              who=''${who%% *}
+              for kv in $(systemctl --user show-environment | grep -E '^(WAYLAND_DISPLAY|DISPLAY)='); do export "$kv"; done
+              if wl-copy --type 'text/plain;charset=utf-8' < "$1" >/dev/null 2>&1; then
+                notify-send -a Valkrie "Text from $who" "Copied: $(head -c 80 "$1")"
+              else
+                notify-send -a Valkrie "Text from $who" "$(head -c 80 "$1")"
+              fi
+              ;;
+            *) notify-send -a Valkrie "$n from your phone" "Saved to $1" ;;
+          esac
+        }
+        # Straight from the phone: Tailscale holds it until it's collected.
+        (
+          while :; do
+            before=$(ls -A "$d" | sort)
+            tailscale file get --wait --conflict=rename "$d" || sleep 10
+            comm -13 <(echo "$before") <(ls -A "$d" | sort) | while IFS= read -r n; do took "$d/$n"; done
+          done
+        ) &
+        # Sent through timy while razy was off.
+        while :; do
+          curl -sf -m 10 "$hub/inbox" | jq -c '.items[]?' | while IFS= read -r it; do
+            id=$(jq -r .id <<<"$it")
+            if [ "$(jq -r .kind <<<"$it")" = text ]; then
+              p="$d/Text from $(jq -r .from <<<"$it") $(date '+%Y-%m-%d %H%M%S').txt"
+              jq -j .text <<<"$it" > "$p"
+            else
+              name=$(jq -r .name <<<"$it")
+              p="$d/$name"
+              k=2
+              case $name in ?*.*) stem=''${name%.*} ext=.''${name##*.} ;; *) stem=$name ext= ;; esac
+              while [ -e "$p" ]; do p="$d/$stem ($k)$ext"; k=$((k+1)); done
+              curl -sf -m 3600 -o "$p.part" "$hub/inbox/$id" || { rm -f "$p.part"; continue; }
+              want=$(jq -r '.sha256 // empty' <<<"$it")
+              if [ -n "$want" ] && [ "$(sha256sum < "$p.part" | cut -d' ' -f1)" != "$want" ]; then rm -f "$p.part"; continue; fi
+              mv "$p.part" "$p"
+            fi
+            curl -sf -m 10 -X DELETE "$hub/inbox/$id" >/dev/null
+            took "$p"
+          done
+          sleep 20
+        done
+      '';
+      Restart = "always";
+      RestartSec = 20;
+    };
+    Install.WantedBy = ["default.target"];
+  };
 }

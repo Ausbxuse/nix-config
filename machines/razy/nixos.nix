@@ -453,6 +453,10 @@ in {
   hardware.openrazer.users = [const.username];
   users.users.${const.username}.linger = true;
 
+  # You collect what's sent to razy through Tailscale yourself (`tailscale file get`, by
+  # valkrie-receive in home.nix), not only root.
+  services.tailscale.extraSetFlags = ["--operator=${const.username}"];
+
   networking.firewall.interfaces.tailscale0.allowedUDPPortRanges = [
     {
       from = 60000;
