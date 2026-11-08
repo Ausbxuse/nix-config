@@ -101,6 +101,18 @@ def within(path, folder):
     return bool(path and folder) and path.startswith(folder.rstrip('/') + '/')
 
 
+def inside(path, folder):
+    """[path] is [folder] or inside it, by name or as the same place on disk: a folder renamed
+    while its agent works, its old name left as a link, is the old name in the session's first
+    records and the registry, and the new one in its later records."""
+    if path == folder or within(path, folder):
+        return True
+    if not (path and folder):
+        return False
+    real, home = os.path.realpath(path), os.path.realpath(folder)
+    return real == home or within(real, home)
+
+
 def editor_draft(raw):
     """What's typed in the input box at the bottom of the raw screen (normalized), if anything.
 
@@ -477,8 +489,8 @@ class Transcripts:
             # back); only an unrelated folder means another session. The session's folder is the
             # outermost one seen.
             cwd = record.get('cwd', '')
-            if cwd != state['cwd'] and not within(cwd, state['cwd']):
-                if state['cwd'] and within(state['cwd'], cwd):
+            if not inside(cwd, state['cwd']):
+                if state['cwd'] and inside(state['cwd'], cwd):
                     state['cwd'] = cwd
                 else:
                     state['cwd'], state['messages'] = cwd, []
@@ -613,7 +625,7 @@ class Transcripts:
             with self.lock:
                 cwd, _ = self.read_claude(path, history)
                 lifecycle = dict(self.cache.get((path, 'claude', bool(history)), {}).get('view', {}).get('lifecycle', {}))
-            if not (cwd == identity['cwd'] or within(cwd, identity['cwd'])) or self.claude_sessions.binding(agent, connection) != identity:
+            if not inside(cwd, identity['cwd']) or self.claude_sessions.binding(agent, connection) != identity:
                 return terminal
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return terminal
@@ -634,7 +646,7 @@ class Transcripts:
             identity = self.claude_sessions.binding(agent, connection)
             if identity:
                 cwd, messages = self.read_claude(identity['path'], history)
-                if (cwd == identity['cwd'] or within(cwd, identity['cwd']) or not cwd and not messages) and self.claude_sessions.binding(agent, connection) == identity:
+                if (inside(cwd, identity['cwd']) or not cwd and not messages) and self.claude_sessions.binding(agent, connection) == identity:
                     selected = messages[-(200 if history else 8):]
                     while sum(len(item['text']) for item in selected) > (500_000 if history else 150_000) and len(selected) > 1:
                         selected.pop(0)

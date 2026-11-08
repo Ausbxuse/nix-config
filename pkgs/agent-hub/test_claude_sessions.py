@@ -64,6 +64,18 @@ class ClaudeSessionTests(unittest.TestCase):
         self.assertEqual(identity['session'], self.session)
         self.assertTrue(self.reader.match(agent, '', connection=self.connection)['session_verified'])
 
+    def test_records_under_the_new_name_of_a_renamed_folder_are_the_same_conversation(self):
+        # Claude's records switch to the new name; the registry keeps the old (gpu-004's teleop
+        # rewrite, 8 November: read as another session, its messages, the one just taken among them, unread).
+        self.record_message('user', 'Before the move.')
+        moved = self.root / 'moved'
+        self.cwd.rename(moved)
+        self.cwd.symlink_to(moved, target_is_directory=True)
+        self.record_message('assistant', 'Moved.', cwd=str(moved))
+        self.record_message('user', 'Queued while it worked.', cwd=str(moved))
+        result = self.reader.match({**self.agent, 'cwd': str(moved)}, '', connection=self.connection, binding=True)
+        self.assertEqual([m['text'] for m in result['messages']], ['Before the move.', 'Moved.', 'Queued while it worked.'])
+
     def test_same_text_in_rapid_turns_has_distinct_native_identity(self):
         terminal = dict(state='done', summary='Completed', activity_confirmed=False, completion_confirmed=True)
         first_user = self.record_message('user', 'Repeat the study.')
