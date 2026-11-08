@@ -22,13 +22,16 @@ in {
 
   # LESLEY's model (Valkrie on timy): Gemma 4 26B, always loaded. Only on the
   # tailnet address, timy's one way into razy (the Headscale policy). Two
-  # conversations cached at once, her window and a call, 64k each of the 128k;
-  # her lesley.env on timy compacts at 56k, under Ollama's cut.
+  # conversations cached at once, her window and a call, 64k each; her
+  # lesley.env on timy compacts at 56k, under Ollama's cut. contextLength is
+  # per conversation (Ollama allocates it times parallel): at 128k each, Gemma,
+  # its draft model and the vision encoder left about 140 MB of the 24 GB free,
+  # and a picture needs 293 MB, so every picture crashed the runner.
   services.ollama-agent = {
     enable = true;
     host = "100.64.0.1";
     port = 11434;
-    contextLength = 131072;
+    contextLength = 65536;
     flashAttention = true;
     kvCacheType = "q8_0";
     parallel = 2;
