@@ -228,6 +228,55 @@ def shell_children(connection):
     return children
 
 
+SHELL_WAIT = 10
+# Claude Code's Bash tool: `zsh -c source <snapshot> … && eval '<command>' … && pwd -P >| /tmp/claude-…-cwd`.
+CLAUDE_EVAL = re.compile(r"""eval '((?:[^']|'"'"')*)'(?=[^']*&& pwd -P >\| \S*claude-)""")
+
+
+def processes(connection):
+    """Every process on the connection's host: (parent PID, seconds running, its command line) by PID."""
+    table = {}
+    for line in run_command(connection, ["ps", "-e", "-ww", "-o", "pid=,ppid=,etimes=,args="]).splitlines():
+        values = line.split(None, 3)
+        if len(values) >= 3 and values[0].isdigit() and values[1].isdigit() and values[2].isdigit():
+            table[values[0]] = (values[1], int(values[2]), values[3] if len(values) > 3 else "")
+    return table
+
+
+def shell_command(args, runtime):
+    """The command a shell under an agent runs, as its tool gave it: Claude's from its eval, Codex's
+    after `-c`/`-lc`. None for anything else under it (its hooks, MCP servers)."""
+    words = args.split(" ", 1)
+    if words[0].rsplit("/", 1)[-1] not in SHELLS or len(words) < 2:
+        return None
+    if runtime == "claude":
+        found = CLAUDE_EVAL.findall(words[1])
+        return found[-1].replace("'\"'\"'", "'").strip() if found else None
+    for flag in (" -lc ", " -c "):
+        if flag in " " + words[1]:
+            return (" " + words[1]).split(flag, 1)[1].strip().strip("'\"").strip() or None
+    return None
+
+
+def waiting_on(table, pid, runtime, now):
+    """What the agent at [pid] waits on: a command run by its tool under it (within three levels, for a
+    Claude started under a shell that stays in front) for SHELL_WAIT seconds or more, the longest
+    running; {"command", "since"} or None."""
+    found, level, parents = [], 0, {pid}
+    while parents and level < 3:
+        level += 1
+        kids = {p for p, (parent, _, _) in table.items() if parent in parents}
+        for kid in kids:
+            command = shell_command(table[kid][2], runtime)
+            if command and table[kid][1] >= SHELL_WAIT:
+                found.append((table[kid][1], command))
+        parents = kids
+    if not found:
+        return None
+    running, command = max(found)
+    return {"command": command[:300], "since": round(now - running)}
+
+
 def parse_panes(output, connection):
     found = {}
     children = None
@@ -471,12 +520,22 @@ def list_agents(connection):
         values = line.split()
         if len(values) == 2 and values[0].isdigit() and values[1].isdigit():
             foregrounds[values[0]] = values[1]
+    # What each agent waits on, if a command its tool ran is still going (see waiting_on). (Its state
+    # isn't known yet: it's read from its screen after this.)
+    try:
+        table = processes(connection) if any(a["live"] for a in agents) else {}
+    except BridgeError:
+        table = {}
+    now = time.time()
     for agent in agents:
         foreground = foregrounds.get(agent["pid"])
         agent["foreground_pid"] = foreground or ""
         agent["id"] += ":" + agent["foreground_pid"]
         if not foreground:
             agent.update(live=False, state="unknown", summary="Foreground process unavailable; refresh before controlling")
+        shell = waiting_on(table, agent["pid"], agent["runtime"], now) if agent["live"] else None
+        if shell:
+            agent["shell"] = shell
     return agents
 
 
