@@ -386,6 +386,21 @@ class RoutingTests(unittest.TestCase):
             bridge.choose(self.local, expected, 3)
             self.assertEqual(run.call_args[0][1][-1], "3")
 
+    def test_a_question_with_previews_moves_to_the_choice_and_takes_it_with_enter(self):
+        # Its number keys only move the highlight (Claude Code 2.1.310): one alone left it open.
+        expected = bridge.parse_panes(row(), self.local)[0]
+        box = "┌" + "─" * 20 + "┐"
+        menu = ("☐ Badge\nWhich of these is what looks wrong?\n❯ 1. Square on round   " + box + "\n  2. Hangs off the edge │ .----.\n"
+                "  3. A rim around it   │\n  4. No badge at all   └" + "─" * 20 + "┘\n                       Notes: press n to add notes\n"
+                + "─" * 40 + "\n  Chat about this\nEnter to select · ↑/↓ to navigate · n to add notes · Esc to cancel")
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[menu, "", ""]) as run:
+            bridge.choose(self.local, expected, 3)
+            keys = [call[0][1][3:] for call in run.call_args_list[1:]]
+            self.assertEqual(keys, [["Down", "Down"], ["Enter"]])
+        with patch.object(bridge, "list_agents", return_value=[expected]), patch.object(bridge, "run", side_effect=[menu, ""]) as run:
+            bridge.choose(self.local, expected, 1)
+            self.assertEqual([call[0][1][3:] for call in run.call_args_list[1:]], [["Enter"]])
+
     def test_a_question_taking_several_goes_on_from_its_submit_row(self):
         expected = bridge.parse_panes(row(), self.local)[0]
         menu = ("←  ☒ Fruit  ✔ Submit  →\n\nWhich fruits?\n\n  1. [ ] Apple\n❯ 2. [✔] Banana\n  3. [ ] Type something\n     Submit\n"

@@ -685,7 +685,26 @@ def choose(connection, agent, number):
 def press(connection, current, number, screen):
     if not re.search(CHOICE_ROW.format(number), screen):
         raise BridgeError("That choice is no longer on its screen.")
+    if at := previewed(screen):
+        # Here the number only moves the highlight (and its preview): Enter picks it.
+        move(connection, current, number - at)
+        run(connection, ["send-keys", "-t", current["pane"], "Enter"])
+        return
     run(connection, ["send-keys", "-t", current["pane"], str(number)])
+
+
+PREVIEW_HINT = re.compile(r'·\s*n to add notes\s*·')
+
+
+def previewed(screen):
+    """A question whose choices each show a preview beside them, open on [screen]: the number of
+    the choice its highlight is on; None for any other menu. (Its number keys only move the
+    highlight, so the hub's \"Chose 1\" left the UI agent's question open: 8 November.)"""
+    lines = [re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', line) for line in screen.split('\n')[-60:]]
+    if not any(PREVIEW_HINT.search(line) for line in lines[-4:]):
+        return None
+    mark = next((m for line in lines if (m := re.match(r'^\s*❯\s*(\d+)\.\s', line))), None)
+    return int(mark.group(1)) if mark else None
 
 
 def answer(connection, agent, number, text):
