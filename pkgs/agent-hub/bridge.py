@@ -590,6 +590,8 @@ def send(connection, agent, message):
         from claude_models import empty_editor
         if not empty_editor(current, capture(connection, current["pane"], 0), capture_terminal(connection, current["pane"], 0)):
             raise BridgeError("This agent has a terminal draft. Clear it before sending.")
+        submit(connection, current, message)
+        return
     paste(connection, current, message)
 
 
@@ -613,7 +615,7 @@ def queue(connection, agent, message):
         from claude_models import empty_editor
         if not empty_editor(current, screen, capture_terminal(connection, current['pane'], 0)):
             raise BridgeError('This agent has a terminal draft or open menu. Finish it before sending.')
-        paste(connection, current, message)
+        submit(connection, current, message)
         return 'queued' if state == 'running' else 'sent'
     if current.get('runtime') != 'codex':
         raise BridgeError('Queuing is available for Codex and Claude agents.')
@@ -644,6 +646,53 @@ def paste(connection, current, message, key='Enter'):
 
 
 PASTE_SETTLE = .3
+
+
+def submit(connection, current, message):
+    """Pastes [message] into Claude's box with Enter, and sees it leave the box. Now and then the
+    Enter is lost (a busy Claude still taking the paste in) and the message sits in the box unsent:
+    Enter again, but only while the box still holds it (never on a menu, or a box it has left)."""
+    paste(connection, current, message)
+    for wait in SUBMIT_CHECKS:
+        time.sleep(wait)
+        if in_box(capture(connection, current["pane"], 0), capture_terminal(connection, current["pane"], 0), message):
+            run(connection, ["send-keys", "-t", current["pane"], "Enter"])
+        # Done once it shows above the box, sent or queued. (An empty box alone may be a paste
+        # not drawn yet: its Enter can still be lost.)
+        elif taken(capture(connection, current["pane"], 200), message):
+            return
+    if in_box(capture(connection, current["pane"], 0), capture_terminal(connection, current["pane"], 0), message):
+        raise BridgeError("The message is in its terminal box but Claude didn't take it. Press Enter there.")
+
+
+SUBMIT_CHECKS = (.5, 1, 2)
+
+
+def taken(screen, message):
+    """[message]'s first words are on [screen] above Claude's input box (sent, or queued)."""
+    lines = screen.split('\n')
+    rules = [i for i, line in enumerate(lines) if EDITOR_BORDER.fullmatch(line)]
+    above = re.sub(r'\s+', '', ''.join(lines[:rules[-2]] if len(rules) >= 2 else lines))
+    start = re.sub(r'\s+', '', message)[:30]
+    return bool(start) and start in above
+
+
+def in_box(screen, styled, message):
+    """Claude's input box, the last one on [screen] (between its two rules), holds [message]: its
+    first words, or the chip a long paste folds into. A grey suggestion ([styled] shows it dim)
+    is not a message, even one with the same words."""
+    lines = screen.split('\n')
+    rules = [i for i, line in enumerate(lines) if EDITOR_BORDER.fullmatch(line)]
+    if len(rules) < 2 or not lines[rules[-2] + 1].startswith('❯'):
+        return False
+    top, bottom = rules[-2], rules[-1]
+    from claude_models import only_dim
+    rows = styled.split('\n')
+    if len(rows) == len(lines) and only_dim(rows[top + 1]):
+        return False
+    held = re.sub(r'\s+', '', ''.join(lines[top + 1:bottom]).lstrip('❯'))
+    start = re.sub(r'\s+', '', message)[:30]
+    return bool(start) and start in held or '[Pastedtext#' in held
 
 
 def retry_capacity(connection, agent):

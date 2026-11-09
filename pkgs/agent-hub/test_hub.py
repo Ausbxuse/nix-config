@@ -465,9 +465,10 @@ class RoutingTests(unittest.TestCase):
         expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
         menu = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
         closed = f"⎿ Interrupted\n{'─' * 40}\n❯ \n{'─' * 40}"
-        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', side_effect=[menu, closed, closed]), \
+        with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', side_effect=[menu, closed, closed] + [f"❯ do it differently\n{closed}"] * 2), \
                 patch.object(bridge, 'capture_terminal', return_value=closed), patch('claude_models.empty_editor', return_value=True), \
-                patch.object(bridge, 'classify', return_value=('waiting', '')), patch.object(bridge, 'run') as run, patch.object(bridge, 'paste') as paste:
+                patch.object(bridge, 'classify', return_value=('waiting', '')), patch.object(bridge, 'run') as run, patch.object(bridge, 'paste') as paste, \
+                patch.object(bridge.time, 'sleep'):
             bridge.send(self.local, expected, 'do it differently')
             self.assertEqual(run.call_args_list[0][0][1][-1], 'Escape')
             paste.assert_called_once()
@@ -476,8 +477,10 @@ class RoutingTests(unittest.TestCase):
         expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
         with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', return_value='screen'), \
                 patch.object(bridge, 'classify', return_value=('running', '')), patch('claude_models.empty_editor', return_value=True), \
-                patch.object(bridge, 'paste') as paste:
+                patch.object(bridge, 'paste') as paste, patch.object(bridge, 'capture_terminal', return_value='screen'), \
+                patch.object(bridge.time, 'sleep'), patch.object(bridge, 'run') as run:
             self.assertEqual(bridge.queue(self.local, expected, 'also check the tests'), 'queued')
+            run.assert_not_called()
             paste.assert_called_once()
         with patch.object(bridge, 'verify_agent', return_value=expected), patch.object(bridge, 'capture', return_value='screen'), \
                 patch.object(bridge, 'classify', return_value=('running', '')), patch('claude_models.empty_editor', return_value=False), \
@@ -485,6 +488,53 @@ class RoutingTests(unittest.TestCase):
             with self.assertRaisesRegex(bridge.BridgeError, 'draft or open menu'):
                 bridge.queue(self.local, expected, 'x')
             paste.assert_not_called()
+
+    def test_a_message_left_in_claudes_box_after_its_enter_gets_enter_again(self):
+        # Now and then Claude lost the Enter after a paste: the message sat in its box unsent.
+        expected = dict(bridge.parse_panes(row(), self.local)[0], runtime='claude')
+        rule = '─' * 40
+        held = f"● Done.\n{rule}\n❯ also check the tests\n{rule}\n  -- INSERT --"
+        empty = f"● Done.\n{rule}\n❯ \n{rule}\n  -- INSERT --"
+        sent = f"● Done.\n❯ also check the tests\n✻ Working…\n{rule}\n❯ \n{rule}\n  -- INSERT --"
+        with patch.object(bridge, 'paste') as paste, patch.object(bridge, 'run') as run, patch.object(bridge.time, 'sleep'), \
+                patch.object(bridge, 'capture', side_effect=[held, sent, sent]), patch.object(bridge, 'capture_terminal', side_effect=[held, sent]):
+            bridge.submit(self.local, expected, 'also check the tests')
+            paste.assert_called_once()
+            self.assertEqual([c.args[1][-1] for c in run.call_args_list], ['Enter'])
+        # Taken at once: no second Enter (it could land on whatever comes next).
+        with patch.object(bridge, 'paste'), patch.object(bridge, 'run') as run, patch.object(bridge.time, 'sleep'), \
+                patch.object(bridge, 'capture', return_value=sent), patch.object(bridge, 'capture_terminal', return_value=sent):
+            bridge.submit(self.local, expected, 'also check the tests')
+            run.assert_not_called()
+        # The box empty but the message nowhere yet (a slow Claude still drawing the paste): looked
+        # at again, and its lost Enter pressed once it shows in the box.
+        with patch.object(bridge, 'paste'), patch.object(bridge, 'run') as run, patch.object(bridge.time, 'sleep'), \
+                patch.object(bridge, 'capture', side_effect=[empty, empty, held, sent, sent]), \
+                patch.object(bridge, 'capture_terminal', side_effect=[empty, held, sent]):
+            bridge.submit(self.local, expected, 'also check the tests')
+            self.assertEqual([c.args[1][-1] for c in run.call_args_list], ['Enter'])
+        # Never taken: said, not claimed sent.
+        with patch.object(bridge, 'paste'), patch.object(bridge, 'run') as run, patch.object(bridge.time, 'sleep'), \
+                patch.object(bridge, 'capture', return_value=held), patch.object(bridge, 'capture_terminal', return_value=held):
+            with self.assertRaisesRegex(bridge.BridgeError, "didn't take it"):
+                bridge.submit(self.local, expected, 'also check the tests')
+            self.assertEqual(run.call_count, len(bridge.SUBMIT_CHECKS))
+
+    def test_what_counts_as_the_message_still_in_claudes_box(self):
+        rule = '─' * 40
+        box = lambda *rows: f"❯ earlier message\n● ok\n{rule}\n" + '\n'.join(rows) + f"\n{rule}\n  footer"
+        message = 'Compare mean and quantile on the held-out set, then write it up'
+        self.assertTrue(bridge.in_box(box('❯ Compare mean and quantile on the', '  held-out set, then write it up'), '', message), 'wrapped')
+        self.assertTrue(bridge.in_box(box('❯ [Pasted text #1 +12 lines]'), '', 'a\n' * 12), 'folded into a chip')
+        self.assertFalse(bridge.in_box(box('❯ '), '', message), 'empty')
+        self.assertFalse(bridge.in_box(box('❯ Press up to edit queued messages'), '', message), 'queued above it')
+        self.assertFalse(bridge.in_box(f"❯ {message}\n● ok\n{rule}\n❯ \n{rule}", '', message), 'sent: above the box')
+        self.assertFalse(bridge.in_box("Do you want to proceed?\n❯ 1. Yes\n  2. No", '', '1. Yes'), 'a menu, not the box')
+        # A grey suggestion of the same words is the box empty.
+        screen = box('❯ push it')
+        styled = screen.replace('❯ push it', '❯ \x1b[2mpush it\x1b[0m')
+        self.assertFalse(bridge.in_box(screen, styled, 'push it'))
+        self.assertTrue(bridge.in_box(screen, screen, 'push it'))
 
     def test_an_answer_in_your_own_words_picks_the_free_text_choice_then_types_it(self):
         expected = bridge.parse_panes(row(), self.local)[0]

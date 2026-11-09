@@ -222,7 +222,7 @@ class ClaudeModelTests(unittest.TestCase):
                     patch.object(bridge, 'classify', return_value=('idle', '')), \
                     patch.object(bridge, 'capture', side_effect=lambda *_: self.term.screen()), \
                     patch.object(bridge, 'capture_terminal', side_effect=lambda *_: self.term.screen()), \
-                    patch.object(bridge, 'paste') as paste:
+                    patch.object(bridge, 'paste') as paste, patch.object(bridge.time, 'sleep'), patch.object(bridge, 'run'):
                 if sent:
                     bridge.send({}, agent, 'did the toaster')
                 else:
