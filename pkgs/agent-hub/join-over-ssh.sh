@@ -54,7 +54,9 @@ PY
 systemctl --user stop agent-hub-uplink agent-hub 2>/dev/null || true
 mkdir -p "$cfg"
 if [[ -f $cfg/node.json ]]; then
-  grep -q '"role": *"worker"' "$cfg/node.json" || { [[ -d $state ]] && mv "$state" "$state.before-$stamp"; }
+  # Its own role, not a peer's: a controller's file lists its workers as "role": "worker" too.
+  role=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("role", ""))' "$cfg/node.json")
+  [[ $role == worker ]] || { [[ -d $state ]] && mv "$state" "$state.before-$stamp"; }
   mv "$cfg/node.json" "$cfg/node.json.before-$stamp"
 fi
 uid=$(id -u)
