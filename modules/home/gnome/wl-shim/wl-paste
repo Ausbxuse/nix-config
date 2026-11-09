@@ -5,6 +5,13 @@ set -euo pipefail
 real=@wlclipboard@/bin/wl-paste
 . @sessionenv@
 case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) exec "$real" "$@" ;; esac
+# A pane older than the current login still names the previous Xwayland's
+# XAUTHORITY; take the live DISPLAY and XAUTHORITY from the user manager.
+if [ -n "${XAUTHORITY:-}" ] && [ ! -r "$XAUTHORITY" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in DISPLAY | XAUTHORITY) export "$key=$value" ;; esac
+  done < <(systemctl --user show-environment 2>/dev/null || true)
+fi
 [ -n "${DISPLAY:-}" ] || exec "$real" "$@"
 
 selection=clipboard type= list=0 newline=1

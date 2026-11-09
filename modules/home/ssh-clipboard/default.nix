@@ -55,6 +55,14 @@
       exit 0
     fi
 
+    # A pane older than the current login still names the previous Xwayland's
+    # XAUTHORITY; take the live DISPLAY and XAUTHORITY from the user manager.
+    if [[ -n "''${XAUTHORITY:-}" && ! -r "$XAUTHORITY" ]]; then
+      while IFS='=' read -r key value; do
+        [[ "$key" == DISPLAY || "$key" == XAUTHORITY ]] && export "$key=$value"
+      done < <(systemctl --user show-environment 2>/dev/null)
+    fi
+
     exec "$real" "''${args[@]}"
   '');
 in {
