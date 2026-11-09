@@ -1662,6 +1662,8 @@ pair_toggle() {
   local window target term_session term_window workbench_window workbench_session
 
   window="$(current_window)"
+  # Agent Hub opens agents as plain windows; adopt one the first time it is toggled.
+  is_workbench_window "$window" || is_paired_terminal_window "$window" || recover_restored_window "$window"
   if is_workbench_window "$window"; then
     sync_paired_window_name "$window"
     target="$(fast_paired_terminal_target "$window" || true)"
