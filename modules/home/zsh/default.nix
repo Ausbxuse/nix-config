@@ -15,6 +15,16 @@
     ];
     text = builtins.readFile ../../../scripts/watt.sh;
   };
+  # Yazi's fallback opener. Text that file(1) doesn't type as text/* (a .nix
+  # read as application/json, unit files, scripts) goes to nvim in this
+  # terminal; xdg-open would start nvim.desktop in a new terminal window.
+  yaziOpen = pkgs.writeShellScript "yazi-open" ''
+    if [[ "$(${pkgs.file}/bin/file -bL --mime-encoding -- "$1")" == binary ]]; then
+      ${pkgs.util-linux}/bin/setsid -f xdg-open "$1" >/dev/null 2>&1
+    else
+      exec nvim "$1"
+    fi
+  '';
 in {
   home.packages = with pkgs; [
     trash-cli
@@ -91,8 +101,8 @@ in {
         ];
         open = [
           {
-            run = "xdg-open %s1";
-            orphan = true;
+            run = "${yaziOpen} %s1";
+            block = true;
             for = "unix";
           }
         ];
@@ -123,6 +133,10 @@ in {
           }
           {
             mime = "application/xml";
+            use = "edit";
+          }
+          {
+            mime = "inode/empty";
             use = "edit";
           }
           {
