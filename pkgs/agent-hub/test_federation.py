@@ -662,6 +662,17 @@ class FederationTests(unittest.TestCase):
             self.assertEqual(send.call_count, 1, 'restart and repeated receipt checks cannot resend')
             self.assertEqual({a['connection_id'] for a in self.b.snapshot()['agents']}, {'b'})
 
+    def test_keys_typed_into_a_worker_agent_are_answered(self):
+        # A worker's keys result has no message to note: the keys were typed on razy, and the
+        # phone was answered 500 (16 November, 13:04: 24 keys, each typed, each "failed").
+        self.make_directional()
+        self.a.mesh.sync('b')
+        target = self.b.snapshot()['agents'][0]['id']
+        with patch.object(bridge, 'keys') as keys:
+            result = self.a.action(dict(type='keys', agent_id=target, keys=[{'key': 'Enter'}], command_id='web-keys-fixture-1'))
+        self.assertEqual(result, {'ok': True})
+        keys.assert_called_once()
+
     def test_controller_restart_after_lost_worker_ack_recovers_durable_outcome(self):
         self.make_directional()
         self.a.mesh.sync('b')

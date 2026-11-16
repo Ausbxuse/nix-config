@@ -694,7 +694,8 @@ class Hub:
                 if self.mesh.peers[peer].get('role') == 'worker':
                     result = self.deliveries.execute_once(value['command_id'], value,
                         lambda: self.mesh.request(peer, 'worker/execute', {'action': value}))
-                    if value.get('type') != 'model_options':
+                    # (A terminal's keys say nothing: each key isn't an event.)
+                    if value.get('type') != 'model_options' and result.get('message'):
                         self.event('action', result['message'], value.get('agent_id', ''))
                     return result
                 return self.deliveries.execute_once(value['command_id'], value,
