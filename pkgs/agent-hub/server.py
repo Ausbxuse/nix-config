@@ -359,6 +359,21 @@ class Hub:
                     errors.append(f"{label}: {exc}")
         return {**self.snapshot(), "refresh_errors": errors}
 
+    def status(self):
+        """Agent states for always-on indicators such as the GNOME top-bar dots:
+        no messages, previews, usage or database reads."""
+        def compact(config, status, last_seen, agents):
+            online = status == "online" and time.time() - last_seen <= max(15, self.poll_interval * 5)
+            return [{"id": agent["id"], "title": display_title(agent), "host": config.get("label") or config["id"],
+                     "state": bridge.handoff_state(agent) if online else "offline"}
+                    for agent in sorted(agents, key=bridge.window_order)]
+        with self.lock:
+            agents = [item for entry in self.connections.values()
+                      for item in compact(entry["config"], entry["status"], entry["last_seen"], entry["agents"])]
+        for entry in self.mesh.entries() if self.mesh else []:
+            agents += compact(entry["config"], entry["status"], entry["last_seen"], entry["agents"])
+        return {"agents": agents}
+
     def snapshot(self, include_peers=True, include_notifications=True):
         with self.lock:
             entries = copy.deepcopy(list(self.connections.values()))
@@ -1694,6 +1709,8 @@ class Handler(BaseHTTPRequestHandler):
                     'generation': query.get('generation', [''])[0], 'offset': offset}))
             if path.path == '/api/continuity':
                 return self.json(self.hub.continuity.list(parse_qs(path.query).get('device', [''])[0]))
+            if path.path == "/api/status":
+                return self.json(self.hub.status())
             if path.path == "/api/state":
                 query = parse_qs(path.query)
                 value = self.hub.snapshot()

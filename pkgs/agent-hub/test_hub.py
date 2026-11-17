@@ -95,6 +95,24 @@ class RoutingTests(unittest.TestCase):
     def setUp(self):
         self.local = {"id": "local", "label": "Local", "kind": "local"}
 
+    def test_status_is_compact_ordered_and_marks_stale_hosts_offline(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(Hub, 'save_connection'):
+            hub = Hub(directory)
+            try:
+                agents = [bridge.parse_panes(row(window_index=index, window=window, window_name=name, session_id='$1',
+                                                 pane_index='0', state=state), self.local)[0]
+                          for index, window, name, state in [('2', '@2', 'Beta', 'waiting'), ('1', '@1', 'Alpha', 'running')]]
+                entry = dict(config=self.local, agents=agents, status='online', error='', last_seen=time.time())
+                hub.connections['local'] = entry
+                status = hub.status()['agents']
+                self.assertEqual([(a['title'], a['state'], a['host']) for a in status],
+                                 [('Alpha', 'running', 'Local'), ('Beta', 'waiting', 'Local')])
+                self.assertEqual(set(status[0]), {'id', 'title', 'host', 'state'})
+                entry['last_seen'] = time.time() - 600
+                self.assertEqual({a['state'] for a in hub.status()['agents']}, {'offline'})
+            finally:
+                hub.close()
+
     def test_agent_list_follows_window_numbers_across_live_updates(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(Hub, 'save_connection'):
             hub = Hub(directory)
