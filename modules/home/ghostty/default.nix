@@ -148,6 +148,7 @@ in {
         nativeBuildInputs = [(pkgs.python3.withPackages (p: [p.numpy p.pillow]))];
       } "python3 ${./frost-background.py} ${src} $out ${args}";
   in {
+    "ghostty/window.css".source = ./window.css;
     "ghostty/shaders/cursor_warp.glsl".source = ./cursor_warp.glsl;
     "ghostty/shaders/ambient.glsl".source = ./ambient.glsl;
     "ghostty/backgrounds/dark.png".source = frost "ghostty-frost-dark.png" (pkgs.fetchurl {
@@ -276,7 +277,11 @@ in {
         gtk-single-instance = false;
         confirm-close-surface = false;
 
-        window-decoration = false;
+        # GTK draws the frame, for rounded corners and a drop shadow, but no
+        # title bar; window.css makes the shadow macOS-like.
+        window-decoration = "client";
+        gtk-titlebar = false;
+        gtk-custom-css = "${config.xdg.configHome}/ghostty/window.css";
         link-url = true;
       };
     };
