@@ -1,0 +1,12 @@
+/* Light top bar: the tmux workbench light window-number colours
+   (theme-light.conf). GNOME loads this instead of stylesheet.css when the
+   colour scheme is light. */
+@import url("stylesheet.css");
+
+.agent-dot { background-color: #626b5e; }
+.agent-dot.running { background-color: #2a6e99; }
+.agent-dot.waiting { background-color: #7e5f0e; }
+.agent-dot.blocked { background-color: #b03e45; }
+.agent-dot.done { background-color: #36703a; }
+.agent-dot.offline { background-color: rgba(34, 34, 38, 0.18); }
+.agent-dots-host { color: #6a6a70; }

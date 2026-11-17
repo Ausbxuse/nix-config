@@ -1,0 +1,12 @@
+/* One dot per agent, in tmux window order; colours match the tmux workbench
+   window numbers (theme-dark.conf). */
+.agent-dots { spacing: 4px; }
+.agent-dot { width: 7px; height: 7px; border-radius: 4px; background-color: #868db0; }
+.agent-dot.running { background-color: #8fd3e6; }
+.agent-dot.waiting { background-color: #e6c27a; }
+.agent-dot.blocked { background-color: #e38b96; }
+.agent-dot.done { background-color: #a3c88b; }
+.agent-dot.offline { background-color: rgba(255, 255, 255, 0.18); }
+
+.agent-dots-item { spacing: 10px; }
+.agent-dots-host { color: #8b8b8b; font-size: 0.9em; }

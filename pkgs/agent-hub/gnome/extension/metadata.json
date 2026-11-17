@@ -1,0 +1,7 @@
+{
+  "uuid": "agent-dots@local",
+  "name": "Agent Dots",
+  "description": "One dot per Agent Hub agent in the top bar, coloured by state.",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "version": 1
+}

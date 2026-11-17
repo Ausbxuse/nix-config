@@ -64,6 +64,8 @@
         os.replace(path + ".tmp", path)
         print("restored" if seeded else "updated float rules")
   '';
+  # Agent Hub states as top-bar dots (pkgs/agent-hub/gnome).
+  agentDots = pkgs.callPackage ../../../pkgs/agent-hub/gnome {};
   # nixpkgs carries Color Picker's GNOME 50 release, which Ubuntu's GNOME 46
   # rejects as out of date. Release 44 is the last one for 46.
   colorPickerGnome46 = pkgs.gnomeExtensions.color-picker.overrideAttrs {
@@ -75,6 +77,7 @@
     };
   };
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
+    agentDots
     astra-monitor
     blur-my-shell
     bluetooth-battery-meter
@@ -396,6 +399,7 @@ in {
     networkmanager-openvpn
     # gnome-extension-manager
     gnome-tweaks
+    agentDots
     gnomeExtensions.astra-monitor
     # gnomeExtensions.colortint
     gnomeExtensions.media-controls
