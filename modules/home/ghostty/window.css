@@ -1,8 +1,10 @@
 /* macOS-style window: GTK's own frame (rounded corners, edge resizing) with a
    soft, wide drop shadow and a hairline edge. GTK's default shadow is barely
-   visible. The focused window casts the deeper shadow, as on macOS. */
+   visible. The focused window casts the deeper shadow, as on macOS. GTK only
+   draws circular corners, so a tight radius stands in for a squircle. */
 window.csd {
-  border-radius: 12px;
+  --window-radius: 8px; /* libadwaita reads this; border-radius alone is ignored */
+  border-radius: 8px;
   box-shadow: 0 18px 50px 0 rgba(0, 0, 0, 0.30), 0 2px 8px 0 rgba(0, 0, 0, 0.18),
               0 0 0 1px rgba(0, 0, 0, 0.16);
 }
