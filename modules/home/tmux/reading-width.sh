@@ -127,17 +127,17 @@ place_bar() {
   local session="$1" current="$2" side="$3" bar_h="$4"
   local pane w role start h keep="" keep_w="" keep_h="" running=0
 
-  while IFS='|' read -r pane w role start h; do
+  while IFS='|' read -r pane w role start h dead; do
     [[ "$role" == agent-bar ]] || continue
     # Keep the first list found, preferring one that is actually running.
-    if [[ -z "$keep" ]] || { ((running == 0)) && [[ "$start" == *agent-bar.sh* ]]; }; then
+    if [[ -z "$keep" ]] || { ((running == 0)) && [[ "$start" == *agent-bar.sh* && "$dead" != 1 ]]; }; then
       [[ -n "$keep" ]] && "$tmux_bin" kill-pane -t "$keep"
       keep="$pane" keep_w="$w" keep_h="$h" running=0
-      [[ "$start" == *agent-bar.sh* ]] && running=1
+      [[ "$start" == *agent-bar.sh* && "$dead" != 1 ]] && running=1
     else
       "$tmux_bin" kill-pane -t "$pane"
     fi
-  done < <("$tmux_bin" list-panes -s -t "$session" -F '#{pane_id}|#{window_id}|#{@pane-role}|#{pane_start_command}|#{pane_height}')
+  done < <("$tmux_bin" list-panes -s -t "$session" -F '#{pane_id}|#{window_id}|#{@pane-role}|#{pane_start_command}|#{pane_height}|#{pane_dead}')
 
   [[ -n "$side" ]] || return 0
   if [[ -z "$keep" ]]; then
@@ -145,7 +145,8 @@ place_bar() {
     "$tmux_bin" set -p -t "$keep" @pane-role agent-bar
     return 0
   fi
-  # A session restore brings the list back as a plain shell; restart it.
+  # A session restore brings the list back as a plain shell, and a dead list
+  # stays as an empty pane; restart it.
   ((running)) || "$tmux_bin" respawn-pane -k -t "$keep" "exec $agent_bar"
   if [[ "$keep_w" != "$current" ]]; then
     "$tmux_bin" join-pane -vbd -l "$bar_h" -s "$keep" -t "$side"

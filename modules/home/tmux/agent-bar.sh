@@ -7,7 +7,8 @@
 #
 # The highlighted row is the current window until the list is focused (Alt+K
 # from the shell below). Then j/k or the arrows move it, g/G jump to the ends,
-# Enter or l opens that agent, and Esc, q or h return to the current agent.
+# Enter or l opens that agent, and Esc, q, h or Ctrl+C return to the current
+# agent.
 # Redraws only when something changed, and idles while hidden.
 set -uo pipefail
 
@@ -77,6 +78,10 @@ move() {
   redraw=1
 }
 
+# Ctrl+C would end the list and leave a dead pane; treat it like Esc.
+trap 'sel="$self" redraw=1; focus_agent "$self"' INT
+
+self=""
 last=""
 while :; do
   info="$("$tmux_bin" display -p -t "$pane" '#{window_id}|#{session_name}|#{window_active}|#{session_attached}|#{pane_width}' 2>/dev/null)" || exit 0
