@@ -178,6 +178,10 @@ in {
     source = ./workbench.sh;
     executable = true;
   };
+  home.file.".local/bin/tmux/agent-bar.sh" = {
+    source = ./agent-bar.sh;
+    executable = true;
+  };
   home.file.".local/bin/tmux/reading-width.sh" = {
     source = ./reading-width.sh;
     executable = true;

@@ -4,8 +4,9 @@
 # 80) and @reading-width-mm on screen (default 200 mm, a blog column's physical
 # width; measured from the local panel's EDID, skipped for SSH clients).
 #
-# The width left over goes to a shell on the left (@pane-role side-terminal,
-# opened in the task root), so the agent column sits off the left edge. When
+# The width left over goes to a left column: an agent list on top
+# (agent-bar.sh, @pane-role agent-bar) above a shell opened in the task root
+# (@pane-role side-terminal), so the agent column sits off the left edge. When
 # the terminal is too narrow for a useful side shell, the agent pane is zoomed
 # instead and the shell waits behind it. Windows with panes of their own, or
 # zoomed by hand, are left alone. Hooks in tmux.conf call this on resizes,
@@ -13,6 +14,7 @@
 set -euo pipefail
 
 tmux_bin="${TMUX_BIN:-tmux}"
+agent_bar="${AGENT_BAR:-$HOME/.local/bin/tmux/agent-bar.sh}"
 min_side=30
 
 # Hooks fire in bursts; one run at a time, or two would each add a side shell.
@@ -52,18 +54,20 @@ drop_old_layout() {
 }
 
 fit_window() {
-  local w="$1" width="$2" cols="$3" agent="$4" root="$5" zoomed="$6" ours="$7"
-  local pane role pane_w side="" agent_w="" others=0 spare
+  local w="$1" width="$2" cols="$3" agent="$4" root="$5" zoomed="$6" ours="$7" bar_h="$8"
+  local pane role pane_w pane_h start side="" bar="" bar_cur_h="" bar_start="" agent_w="" others=0 spare
 
-  while IFS='|' read -r pane role pane_w; do
+  while IFS='|' read -r pane role pane_w pane_h start; do
     if [[ "$pane" == "$agent" ]]; then
       agent_w="$pane_w"
     elif [[ "$role" == side-terminal && -z "$side" ]]; then
       side="$pane"
+    elif [[ "$role" == agent-bar && -z "$bar" ]]; then
+      bar="$pane" bar_cur_h="$pane_h" bar_start="$start"
     else
       others=1
     fi
-  done < <("$tmux_bin" list-panes -t "$w" -F '#{pane_id}|#{@pane-role}|#{pane_width}')
+  done < <("$tmux_bin" list-panes -t "$w" -F '#{pane_id}|#{@pane-role}|#{pane_width}|#{pane_height}|#{pane_start_command}')
 
   [[ -n "$agent_w" && "$others" == 0 ]] || return 0
   # A zoom we did not make is the user's; leave it.
@@ -81,7 +85,18 @@ fit_window() {
     elif [[ "$agent_w" != "$cols" ]]; then
       "$tmux_bin" resize-pane -t "$agent" -x "$cols"
     fi
-    # The divider stays the plain border colour whichever side is focused.
+    # The agent list sits above the shell; a session restore brings it back as
+    # a plain shell, so restart the list there.
+    if [[ -z "$bar" ]]; then
+      bar="$("$tmux_bin" split-window -vbd -l "$bar_h" -t "$side" -P -F '#{pane_id}' "exec $agent_bar")"
+      "$tmux_bin" set -p -t "$bar" @pane-role agent-bar \; \
+        set -p -t "$bar" @workbench-window "$w"
+    elif [[ "$bar_start" != *agent-bar.sh* ]]; then
+      "$tmux_bin" respawn-pane -k -t "$bar" "exec $agent_bar"
+    elif [[ "$bar_cur_h" != "$bar_h" ]]; then
+      "$tmux_bin" resize-pane -t "$bar" -y "$bar_h"
+    fi
+    # The dividers stay the plain border colour whichever pane is focused.
     "$tmux_bin" set -w -t "$w" pane-active-border-style '#{pane-border-style}'
   elif [[ -n "$side" && "$zoomed" != 1 ]]; then
     "$tmux_bin" resize-pane -Z -t "$agent" \; set -w -t "$w" @reading-zoomed 1
@@ -110,9 +125,15 @@ for session in "${!client_w[@]}"; do
     ((fit > 0 && fit < cols)) && cols="$fit"
   fi
 
-  while IFS='|' read -r w root agent zoomed ours old; do
+  windows="$("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{@task-root}|#{@agent-pane}|#{window_zoomed_flag}|#{@reading-zoomed}|#{@reading-layout}|#{window_height}')"
+  # The agent list shows one row per agent window, up to half the height.
+  agents="$(grep -c '^[^|]*|[^|]' <<<"$windows" || true)"
+
+  while IFS='|' read -r w root agent zoomed ours old win_h; do
     [[ -n "$old" ]] && drop_old_layout "$w"
     [[ -n "$root" && -d "$root" && -n "$agent" ]] || continue
-    fit_window "$w" "$width" "$cols" "$agent" "$root" "$zoomed" "$ours"
-  done < <("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{@task-root}|#{@agent-pane}|#{window_zoomed_flag}|#{@reading-zoomed}|#{@reading-layout}')
+    bar_h=$((agents < win_h / 2 ? agents : win_h / 2))
+    ((bar_h >= 1)) || bar_h=1
+    fit_window "$w" "$width" "$cols" "$agent" "$root" "$zoomed" "$ours" "$bar_h"
+  done <<<"$windows"
 done
