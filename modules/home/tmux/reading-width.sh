@@ -4,11 +4,14 @@
 # 80) and @reading-width-mm on screen (default 200 mm, a blog column's physical
 # width; measured from the local panel's EDID, skipped for SSH clients).
 #
-# The width left over goes to a left column: an agent list on top
-# (agent-bar.sh, @pane-role agent-bar) above a shell opened in the task root
-# (@pane-role side-terminal), so the agent column sits off the left edge. When
-# the terminal is too narrow for a useful side shell, the agent pane is zoomed
-# instead and the shell waits behind it. Windows with panes of their own, or
+# The agent column is centred where there is room: a left column holds a
+# shell opened in the task root (@pane-role side-terminal), and the window is
+# narrowed so the same width stays blank on the right. On narrower terminals
+# the left column just takes the spare width, and below $min_side spare cells
+# the agent pane is zoomed with the shell waiting behind it.
+#
+# One agent list per session (agent-bar.sh, @pane-role agent-bar) follows the
+# current window, sitting above its shell. Windows with panes of their own, or
 # zoomed by hand, are left alone. Hooks in tmux.conf call this on resizes,
 # attaches, window switches and layout changes.
 set -euo pipefail
@@ -47,76 +50,129 @@ viewed_over_ssh() {
 # An earlier version narrowed windows with a scrollbar margin; undo that.
 drop_old_layout() {
   local w="$1" opt
-  for opt in window-size pane-scrollbars pane-scrollbars-position pane-scrollbars-style \
-    fill-character pane-border-lines @reading-layout; do
+  for opt in window-size fill-character pane-scrollbars pane-scrollbars-position \
+    pane-scrollbars-style pane-border-lines @reading-layout; do
     "$tmux_bin" set -wu -t "$w" "$opt" 2>/dev/null || true
   done
 }
 
-fit_window() {
-  local w="$1" width="$2" cols="$3" agent="$4" root="$5" zoomed="$6" ours="$7" bar_h="$8"
-  local pane role pane_w pane_h start side="" bar="" bar_cur_h="" bar_start="" agent_w="" others=0 spare
+# Give the whole terminal back to a window narrowed for centring.
+unnarrow() {
+  local w="$1"
+  "$tmux_bin" set -wu -t "$w" window-size \; set -wu -t "$w" fill-character \; \
+    set -wu -t "$w" @reading-narrow 2>/dev/null || true
+}
 
-  while IFS='|' read -r pane role pane_w pane_h start; do
+# Lay out one agent window; prints its side-shell pane when the left column
+# is showing, for the agent list to sit on.
+fit_window() {
+  local w="$1" width="$2" height="$3" cols="$4" agent="$5" root="$6" zoomed="$7" ours="$8" narrow="$9"
+  local pane role pane_w side="" agent_w="" others=0 spare left total
+
+  while IFS='|' read -r pane role pane_w; do
     if [[ "$pane" == "$agent" ]]; then
       agent_w="$pane_w"
     elif [[ "$role" == side-terminal && -z "$side" ]]; then
       side="$pane"
-    elif [[ "$role" == agent-bar && -z "$bar" ]]; then
-      bar="$pane" bar_cur_h="$pane_h" bar_start="$start"
-    else
+    elif [[ "$role" != agent-bar ]]; then
       others=1
     fi
-  done < <("$tmux_bin" list-panes -t "$w" -F '#{pane_id}|#{@pane-role}|#{pane_width}|#{pane_height}|#{pane_start_command}')
+  done < <("$tmux_bin" list-panes -t "$w" -F '#{pane_id}|#{@pane-role}|#{pane_width}')
 
-  [[ -n "$agent_w" && "$others" == 0 ]] || return 0
-  # A zoom we did not make is the user's; leave it.
-  [[ "$zoomed" == 1 && -z "$ours" ]] && return 0
+  if [[ -z "$agent_w" || "$others" == 1 || ("$zoomed" == 1 && -z "$ours") ]]; then
+    [[ -n "$narrow" ]] && unnarrow "$w"
+    return 0
+  fi
 
   spare=$((width - cols - 1))
-  if ((spare >= min_side)); then
-    if [[ "$zoomed" == 1 ]]; then
-      "$tmux_bin" resize-pane -Z -t "$agent" \; set -wu -t "$w" @reading-zoomed
+  if ((spare < min_side)); then
+    [[ -n "$narrow" ]] && unnarrow "$w"
+    if [[ -n "$side" && "$zoomed" != 1 ]]; then
+      "$tmux_bin" resize-pane -Z -t "$agent" \; set -w -t "$w" @reading-zoomed 1
     fi
-    if [[ -z "$side" ]]; then
-      side="$("$tmux_bin" split-window -hbd -l "$spare" -t "$agent" -c "$root" -P -F '#{pane_id}')"
-      "$tmux_bin" set -p -t "$side" @pane-role side-terminal \; \
-        set -p -t "$side" @workbench-window "$w"
-    elif [[ "$agent_w" != "$cols" ]]; then
-      "$tmux_bin" resize-pane -t "$agent" -x "$cols"
+    return 0
+  fi
+
+  # Centre the agent column when the left half has room for a usable shell.
+  left=$(((width - cols) / 2))
+  ((left >= min_side)) || left="$spare"
+  total=$((left + 1 + cols))
+
+  if [[ "$zoomed" == 1 ]]; then
+    "$tmux_bin" resize-pane -Z -t "$agent" \; set -wu -t "$w" @reading-zoomed
+  fi
+  if ((total < width)); then
+    if [[ "$narrow" != "$total:$height" ]]; then
+      "$tmux_bin" set -w -t "$w" fill-character ' ' \; \
+        set -w -t "$w" @reading-narrow "$total:$height" \; \
+        resize-window -t "$w" -x "$total" -y "$height"
     fi
-    # The agent list sits above the shell; a session restore brings it back as
-    # a plain shell, so restart the list there.
-    if [[ -z "$bar" ]]; then
-      bar="$("$tmux_bin" split-window -vbd -l "$bar_h" -t "$side" -P -F '#{pane_id}' "exec $agent_bar")"
-      "$tmux_bin" set -p -t "$bar" @pane-role agent-bar \; \
-        set -p -t "$bar" @workbench-window "$w"
-    elif [[ "$bar_start" != *agent-bar.sh* ]]; then
-      "$tmux_bin" respawn-pane -k -t "$bar" "exec $agent_bar"
-    elif [[ "$bar_cur_h" != "$bar_h" ]]; then
-      "$tmux_bin" resize-pane -t "$bar" -y "$bar_h"
+  elif [[ -n "$narrow" ]]; then
+    unnarrow "$w"
+  fi
+  if [[ -z "$side" ]]; then
+    side="$("$tmux_bin" split-window -hbd -l "$left" -t "$agent" -c "$root" -P -F '#{pane_id}')"
+    "$tmux_bin" set -p -t "$side" @pane-role side-terminal \; \
+      set -p -t "$side" @workbench-window "$w"
+  elif [[ "$agent_w" != "$cols" ]]; then
+    "$tmux_bin" resize-pane -t "$agent" -x "$cols"
+  fi
+  # The dividers stay the plain border colour whichever pane is focused.
+  "$tmux_bin" set -w -t "$w" pane-active-border-style '#{pane-border-style}'
+  printf '%s\n' "$side"
+}
+
+# Keep one agent list per session, above the current window's side shell.
+place_bar() {
+  local session="$1" current="$2" side="$3" bar_h="$4"
+  local pane w role start h keep="" keep_w="" keep_h="" running=0
+
+  while IFS='|' read -r pane w role start h; do
+    [[ "$role" == agent-bar ]] || continue
+    # Keep the first list found, preferring one that is actually running.
+    if [[ -z "$keep" ]] || { ((running == 0)) && [[ "$start" == *agent-bar.sh* ]]; }; then
+      [[ -n "$keep" ]] && "$tmux_bin" kill-pane -t "$keep"
+      keep="$pane" keep_w="$w" keep_h="$h" running=0
+      [[ "$start" == *agent-bar.sh* ]] && running=1
+    else
+      "$tmux_bin" kill-pane -t "$pane"
     fi
-    # The dividers stay the plain border colour whichever pane is focused.
-    "$tmux_bin" set -w -t "$w" pane-active-border-style '#{pane-border-style}'
-  elif [[ -n "$side" && "$zoomed" != 1 ]]; then
-    "$tmux_bin" resize-pane -Z -t "$agent" \; set -w -t "$w" @reading-zoomed 1
+  done < <("$tmux_bin" list-panes -s -t "$session" -F '#{pane_id}|#{window_id}|#{@pane-role}|#{pane_start_command}|#{pane_height}')
+
+  [[ -n "$side" ]] || return 0
+  if [[ -z "$keep" ]]; then
+    keep="$("$tmux_bin" split-window -vbd -l "$bar_h" -t "$side" -P -F '#{pane_id}' "exec $agent_bar")"
+    "$tmux_bin" set -p -t "$keep" @pane-role agent-bar
+    return 0
+  fi
+  # A session restore brings the list back as a plain shell; restart it.
+  ((running)) || "$tmux_bin" respawn-pane -k -t "$keep" "exec $agent_bar"
+  if [[ "$keep_w" != "$current" ]]; then
+    "$tmux_bin" join-pane -vbd -l "$bar_h" -s "$keep" -t "$side"
+  elif [[ "$keep_h" != "$bar_h" ]]; then
+    "$tmux_bin" resize-pane -t "$keep" -y "$bar_h"
   fi
 }
 
 mm_per_px="$(panel_mm_per_px || true)"
 
 # The most recently active client of each session decides its layout.
-declare -A client_w client_cell client_pid
-while read -r _ session width cell pid; do
+declare -A client_w client_h client_cell client_pid
+while read -r _ session width height cell pid; do
   [[ -n "${client_w[$session]:-}" ]] && continue
   client_w[$session]="$width"
+  client_h[$session]="$height"
   client_cell[$session]="$cell"
   client_pid[$session]="$pid"
-done < <("$tmux_bin" list-clients -F '#{client_activity} #{client_session} #{client_width} #{client_cell_width} #{client_pid}' | sort -rn)
+done < <("$tmux_bin" list-clients -F '#{client_activity} #{client_session} #{client_width} #{client_height} #{client_cell_width} #{client_pid}' | sort -rn)
 
 for session in "${!client_w[@]}"; do
   [[ "$session" == *-terms ]] && continue
   width="${client_w[$session]}"
+  status="$("$tmux_bin" show -t "$session" -qv status)"
+  [[ -n "$status" ]] || status="$("$tmux_bin" show -gqv status)"
+  case "$status" in on) lines=1 ;; off) lines=0 ;; *) lines="$status" ;; esac
+  height=$((client_h[$session] - lines))
 
   cols="$max_cols"
   cell="${client_cell[$session]}"
@@ -125,15 +181,23 @@ for session in "${!client_w[@]}"; do
     ((fit > 0 && fit < cols)) && cols="$fit"
   fi
 
-  windows="$("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{@task-root}|#{@agent-pane}|#{window_zoomed_flag}|#{@reading-zoomed}|#{@reading-layout}|#{window_height}')"
+  windows="$("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{@task-root}|#{@agent-pane}|#{window_zoomed_flag}|#{@reading-zoomed}|#{@reading-narrow}|#{@reading-layout}|#{window_active}')"
   # The agent list shows one row per agent window, up to half the height.
   agents="$(grep -c '^[^|]*|[^|]' <<<"$windows" || true)"
+  bar_h=$((agents < height / 2 ? agents : height / 2))
+  ((bar_h >= 1)) || bar_h=1
 
-  while IFS='|' read -r w root agent zoomed ours old win_h; do
+  current="" current_side=""
+  while IFS='|' read -r w root agent zoomed ours narrow old active; do
     [[ -n "$old" ]] && drop_old_layout "$w"
-    [[ -n "$root" && -d "$root" && -n "$agent" ]] || continue
-    bar_h=$((agents < win_h / 2 ? agents : win_h / 2))
-    ((bar_h >= 1)) || bar_h=1
-    fit_window "$w" "$width" "$cols" "$agent" "$root" "$zoomed" "$ours" "$bar_h"
+    [[ "$active" == 1 ]] && current="$w"
+    if [[ -z "$root" || ! -d "$root" || -z "$agent" ]]; then
+      [[ -n "$narrow" ]] && unnarrow "$w"
+      continue
+    fi
+    side="$(fit_window "$w" "$width" "$height" "$cols" "$agent" "$root" "$zoomed" "$ours" "$narrow")"
+    [[ "$active" == 1 ]] && current_side="$side"
   done <<<"$windows"
+
+  place_bar "$session" "$current" "$current_side" "$bar_h"
 done

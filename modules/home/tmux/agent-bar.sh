@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Herdr-style agent list for the top of an agent window's left column
-# (placed by reading-width.sh): one row per workbench window in this session
-# with its number, name, state and the workbench's one-line summary. Colours
-# match the status bar's window numbers: green ready, blue working, yellow
-# needs input, red failed, grey idle by hand. ▸ marks this window. Read-only;
-# it redraws only when something changed and idles while its window is hidden.
+# Herdr-style agent list, one per session, kept above the current agent
+# window's side shell by reading-width.sh: one row per workbench window with
+# its number, name, state and the workbench's one-line summary. Colours match
+# the status bar's window numbers: green ready, blue working, yellow needs
+# input, red failed, grey idle by hand.
+#
+# The highlighted row is the current window until the list is focused (Alt+K
+# from the shell below). Then j/k or the arrows move it, g/G jump to the ends,
+# Enter or l opens that agent, and Esc, q or h return to the current agent.
+# Redraws only when something changed, and idles while hidden.
 set -uo pipefail
 
 tmux_bin="${TMUX_BIN:-tmux}"
@@ -15,9 +19,13 @@ trap 'printf "\e[?25h"' EXIT
 redraw=1
 trap 'redraw=1' WINCH
 
+sel="" sel_window=""
+ids=() agents=()
+
+# One row; plain text decides the cut, so colour codes never count.
 row() {
-  local mark="$1" index="$2" name="$3" state="$4" manual="$5" bell="$6" summary="$7" width="$8"
-  local colour word head rest
+  local selected="$1" mark="$2" index="$3" name="$4" state="$5" manual="$6" bell="$7" summary="$8" width="$9"
+  local colour word head plain rest
 
   if [[ -n "$manual" ]]; then
     colour=8 word=idle
@@ -33,20 +41,40 @@ row() {
   # Generic summaries only repeat the state.
   case "$summary" in "$word" | "$state" | ready | working | done | idle) summary="" ;; esac
 
-  # Plain text decides the cut, so colour codes never count against the width.
   head="$(printf '%s%2s %-12.12s ● %-7s' "$mark" "$index" "$name" "$word")"
-  rest=$((width - ${#head} - 1))
-  ((rest > 0)) || summary=""
-  ((rest > 0)) && summary="${summary:0:rest}"
   head="${head:0:width}"
+  rest=$((width - ${#head} - 1))
+  if ((rest > 0)) && [[ -n "$summary" ]]; then summary="${summary:0:rest}"; else summary=""; fi
+  plain="$head${summary:+ $summary}"
 
-  if [[ "$mark" == "▸" ]]; then
-    printf '\e[1m%s\e[22m' "${head:0:16}"
-  else
-    printf '%s' "${head:0:16}"
+  # The highlighted row is plain reverse video, like any list selection.
+  if [[ "$selected" == 1 ]]; then
+    printf '\e[7m%s%*s\e[27m' "$plain" $((width - ${#plain})) ''
+    return
   fi
-  printf '\e[3%sm%s\e[39m' "$colour" "${head:16}"
+  printf '%s\e[3%sm%s\e[39m' "${head:0:16}" "$colour" "${head:16}"
   [[ -n "$summary" ]] && printf ' \e[90m%s\e[39m' "$summary"
+  printf '%*s' $((width - ${#plain})) ''
+}
+
+focus_agent() {
+  local agent
+  agent="$("$tmux_bin" display -p -t "$1" '#{@agent-pane}' 2>/dev/null)"
+  [[ -n "$agent" ]] && "$tmux_bin" select-pane -t "$agent" 2>/dev/null
+}
+
+move() {
+  local i n="${#ids[@]}"
+  ((n)) || return 0
+  for i in "${!ids[@]}"; do [[ "${ids[$i]}" == "$sel" ]] && break; done
+  case "$1" in
+    down) ((i < n - 1)) && ((i++)) ;;
+    up) ((i > 0)) && ((i--)) ;;
+    top) i=0 ;;
+    bottom) i=$((n - 1)) ;;
+  esac
+  sel="${ids[$i]}"
+  redraw=1
 }
 
 last=""
@@ -55,20 +83,52 @@ while :; do
   IFS='|' read -r self session active attached width <<<"$info"
 
   if [[ "$active" == 1 && "$attached" != 0 ]]; then
+    # Moving to another window resets the highlight to that window.
+    if [[ "$self" != "$sel_window" ]]; then
+      sel="$self" sel_window="$self" redraw=1
+    fi
     list="$("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{window_index}|#{window_name}|#{@agent-state}|#{@agent-manual-idle}|#{window_bell_flag}|#{@agent-summary}|#{@task-root}' 2>/dev/null)"
-    if ((redraw)) || [[ "$list|$width" != "$last" ]]; then
-      last="$list|$width"
+    if ((redraw)) || [[ "$list|$width|$sel" != "$last" ]]; then
       redraw=0
+      ids=()
+      while IFS='|' read -r id _ _ _ _ _ _ root; do
+        [[ -n "$root" ]] && ids+=("$id")
+      done <<<"$list"
+      [[ " ${ids[*]} " == *" $sel "* ]] || sel="$self"
+      last="$list|$width|$sel"
       out=$'\e[H'
       while IFS='|' read -r id index name state manual bell summary root; do
         [[ -n "$root" ]] || continue
-        mark=" "
+        mark=" " selected=0
         [[ "$id" == "$self" ]] && mark="▸"
+        [[ "$id" == "$sel" ]] && selected=1
         [[ "$bell" == 1 ]] || bell=""
-        out+="$(row "$mark" "$index" "$name" "$state" "$manual" "$bell" "$summary" "$width")"$'\e[K\n'
+        out+="$(row "$selected" "$mark" "$index" "$name" "$state" "$manual" "$bell" "$summary" "$width")"$'\e[K\n'
       done <<<"$list"
       printf '%s\e[J' "${out%$'\n'}"
     fi
   fi
-  sleep 1
+
+  key=""
+  if IFS= read -rsn1 -t 1 key; then
+    if [[ "$key" == $'\e' ]]; then
+      rest=""
+      IFS= read -rsn2 -t 0.02 rest || true
+      key+="$rest"
+    fi
+    case "$key" in
+      j | $'\e[B') move down ;;
+      k | $'\e[A') move up ;;
+      g) move top ;;
+      G) move bottom ;;
+      "" | l | $'\e[C')
+        if [[ -n "$sel" && "$sel" != "$self" ]]; then
+          "$tmux_bin" select-window -t "$sel" 2>/dev/null && focus_agent "$sel"
+        else
+          focus_agent "$self"
+        fi
+        ;;
+      $'\e' | q | h | $'\e[D') sel="$self" redraw=1; focus_agent "$self" ;;
+    esac
+  fi
 done
