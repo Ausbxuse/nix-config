@@ -178,6 +178,10 @@ in {
     source = ./workbench.sh;
     executable = true;
   };
+  home.file.".local/bin/tmux/reading-width.sh" = {
+    source = ./reading-width.sh;
+    executable = true;
+  };
   home.file.".local/bin/tmux/claude-notify.sh" = {
     source = ./claude-notify.sh;
     executable = true;
