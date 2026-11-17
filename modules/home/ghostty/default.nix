@@ -241,8 +241,9 @@ in {
           cursor-color = "#36703A";
           cursor-text = "#FCFCFA";
 
-          # The shell's moss selection, rgba(54, 112, 58, 0.2) over the paper.
-          selection-background = "#D4E0D5";
+          # Moss at 35% over the paper: 1.67:1 against it (0.2 gave 1.33:1, too
+          # faint to see), and the ink on it still reads at 9.2:1.
+          selection-background = "#B7CBB7";
           selection-foreground = "#222226";
         };
       };
