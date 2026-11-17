@@ -119,7 +119,22 @@
         '';
       }
     else pkgs.ghostty;
+  # Apple's SF Mono with ligatures and Nerd Font glyphs, as Apple's Terminal and
+  # Xcode use. Fetched at build time; the font files are not kept in this repo.
+  ligaSFMono = pkgs.stdenvNoCC.mkDerivation {
+    pname = "liga-sfmono-nerd-font";
+    version = "0-unstable-2023-07-02";
+    src = pkgs.fetchFromGitHub {
+      owner = "shaunsingh";
+      repo = "SFMono-Nerd-Font-Ligaturized";
+      rev = "dc5a3e6fcc2e16ad476b7be3c3c17c2273b260ea";
+      hash = "sha256-AYjKrVLISsJWXN6Cj74wXmbJtREkFDYOCRw1t2nVH2w=";
+    };
+    installPhase = "install -Dm444 -t $out/share/fonts/opentype *.otf";
+  };
 in {
+  home.packages = [ligaSFMono];
+
   # Frosted-glass background for the dark theme, baked from a desktop wallpaper
   # (frost-background.py): blurred like an iOS material, toned, then shown
   # opaque. The light theme stays flat to match the light shell and Firefox.
@@ -239,14 +254,9 @@ in {
         # custom-shader = "${config.xdg.configHome}/ghostty/shaders/ambient.glsl";
         # custom-shader-animation = true;
 
-        font-family = "Maple Mono NF";
+        font-family = "Liga SFMono Nerd Font";
         font-size = lib.mkDefault 12;
         font-thicken = true;
-        font-feature = [
-          "+cv01"
-          "+cv02"
-          "+zero"
-        ];
 
         shell-integration-features = "no-cursor,no-sudo,title";
         # Slow touchpad scrolling, including Codex history through tmux.
