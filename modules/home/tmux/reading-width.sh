@@ -81,6 +81,8 @@ fit_window() {
     elif [[ "$agent_w" != "$cols" ]]; then
       "$tmux_bin" resize-pane -t "$agent" -x "$cols"
     fi
+    # The divider stays the plain border colour whichever side is focused.
+    "$tmux_bin" set -w -t "$w" pane-active-border-style '#{pane-border-style}'
   elif [[ -n "$side" && "$zoomed" != 1 ]]; then
     "$tmux_bin" resize-pane -Z -t "$agent" \; set -w -t "$w" @reading-zoomed 1
   fi
