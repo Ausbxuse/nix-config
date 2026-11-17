@@ -7,8 +7,8 @@
 #
 # The highlighted row is the current window until the list is focused (Alt+K
 # from the shell below). Then j/k or the arrows move it, g/G jump to the ends,
-# Enter or l opens that agent, and Esc, q, h or Ctrl+C return to the current
-# agent.
+# Enter or l opens that agent, r renames it (the usual rename prompt,
+# prefilled), and Esc, q, h or Ctrl+C return to the current agent.
 # Redraws only when something changed.
 set -uo pipefail
 
@@ -56,6 +56,15 @@ row() {
   printf '%s\e[3%sm%s\e[39m' "${head:0:16}" "$colour" "${head:16}"
   [[ -n "$summary" ]] && printf ' \e[90m%s\e[39m' "$summary"
   printf '%*s' $((width - ${#plain})) ''
+}
+
+# tmux's own rename prompt, so the workbench rename hooks run as usual. The
+# prefill is format-expanded, hence the doubled #.
+rename() {
+  local id name=""
+  [[ -n "$sel" ]] || return 0
+  while IFS="|" read -r id _ name _; do [[ "$id" == "$sel" ]] && break; name=""; done <<<"$list"
+  "$tmux_bin" command-prompt -I "${name//#/##}" -p "rename:" "rename-window -t '$sel' -- \"%%%\"" 2>/dev/null
 }
 
 focus_agent() {
@@ -128,6 +137,7 @@ while :; do
       k | $'\e[A') move up ;;
       g) move top ;;
       G) move bottom ;;
+      r) rename ;;
       "" | l | $'\e[C')
         if [[ -n "$sel" && "$sel" != "$self" ]]; then
           "$tmux_bin" select-window -t "$sel" 2>/dev/null && focus_agent "$sel"
