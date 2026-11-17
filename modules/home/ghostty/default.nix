@@ -197,9 +197,9 @@ in {
           selection-background = "#3c4e64";
           selection-foreground = "#e6e4f0";
         };
-        # Daytime counterpart: the neutral paper and ink of the Snappy-Light
-        # shell (#fafafb / #222226) and Firefox, flat like them, with moss, lake
-        # and ochre accents; all normal colors at WCAG AA (>= 4.5:1).
+        # Daytime counterpart: flat paper matching the ChatGPT page in Firefox
+        # (#fcfcfc as rendered), the Snappy-Light shell's ink (#222226), moss,
+        # lake and ochre accents; all normal colors at WCAG AA (>= 4.5:1).
         snappy_light = {
           palette = [
             "0=#3A3A3F" # ink2
@@ -221,13 +221,13 @@ in {
             "15=#1C1C20" # deep ink
           ];
 
-          background = "#FAFAFB";
+          background = "#FCFCFC";
           foreground = "#222226";
           cursor-color = "#36703A";
-          cursor-text = "#FAFAFB";
+          cursor-text = "#FCFCFC";
 
           # The shell's moss selection, rgba(54, 112, 58, 0.2) over the paper.
-          selection-background = "#D3DED4";
+          selection-background = "#D4E0D5";
           selection-foreground = "#222226";
         };
       };
