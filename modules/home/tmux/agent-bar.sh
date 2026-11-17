@@ -9,7 +9,7 @@
 # from the shell below). Then j/k or the arrows move it, g/G jump to the ends,
 # Enter or l opens that agent, and Esc, q, h or Ctrl+C return to the current
 # agent.
-# Redraws only when something changed, and idles while hidden.
+# Redraws only when something changed.
 set -uo pipefail
 
 tmux_bin="${TMUX_BIN:-tmux}"
@@ -87,11 +87,13 @@ while :; do
   info="$("$tmux_bin" display -p -t "$pane" '#{window_id}|#{session_name}|#{window_active}|#{session_attached}|#{pane_width}' 2>/dev/null)" || exit 0
   IFS='|' read -r self session active attached width <<<"$info"
 
-  if [[ "$active" == 1 && "$attached" != 0 ]]; then
-    # Moving to another window resets the highlight to that window.
-    if [[ "$self" != "$sel_window" ]]; then
-      sel="$self" sel_window="$self" redraw=1
-    fi
+  # Hidden lists keep drawing so a window switch shows them already current;
+  # the highlight returns to this window whenever it is not on screen.
+  if [[ "$active" != 1 || "$attached" == 0 ]]; then
+    [[ "$sel" == "$self" ]] || redraw=1
+    sel="$self"
+  fi
+  if :; then
     list="$("$tmux_bin" list-windows -t "$session" -F '#{window_id}|#{window_index}|#{window_name}|#{@agent-state}|#{@agent-manual-idle}|#{window_bell_flag}|#{@agent-summary}|#{@task-root}' 2>/dev/null)"
     if ((redraw)) || [[ "$list|$width|$sel" != "$last" ]]; then
       redraw=0
