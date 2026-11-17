@@ -120,10 +120,11 @@
       }
     else pkgs.ghostty;
 in {
-  # Frosted-glass backgrounds baked from the desktop wallpapers
-  # (frost-background.py): blurred like an iOS material and toned per theme,
-  # then shown opaque. blur-my-shell's live per-app blur stopped GNOME sending
-  # frame callbacks to Ghostty after workspace switches, freezing it.
+  # Frosted-glass background for the dark theme, baked from a desktop wallpaper
+  # (frost-background.py): blurred like an iOS material, toned, then shown
+  # opaque. The light theme stays flat to match the light shell and Firefox.
+  # blur-my-shell's live per-app blur stopped GNOME sending frame callbacks to
+  # Ghostty after workspace switches, freezing it.
   # sigma 34 image px x 1.5 cover scale = 51 screen px on the 27" 4K.
   xdg.configFile = let
     walls = "https://raw.githubusercontent.com/dharmx/walls/6bf4d733ebf2b484a37c17d742eb47e5139e6a14";
@@ -138,10 +139,6 @@ in {
       url = "${walls}/mountain/a_snowy_mountain_tops_with_blue_sky.jpg";
       hash = "sha256-zjl0t/8LfXNTIsZtByM1Lczdwmm0tHZs50XPsaniy6I=";
     }) "--bg '#1e2233' --tint 0.62 --dim 0.5";
-    "ghostty/backgrounds/light.png".source = frost "ghostty-frost-light.png" (pkgs.fetchurl {
-      url = "${walls}/mountain/a_mountain_with_snow_and_clouds.jpg";
-      hash = "sha256-I/ZV9UoxeGrbRGadYNkhFfa8g2ulSSbS0GeATN3x43M=";
-    }) "--bg '#EEF0E4' --tint 0.62 --lift 0.25 --saturate 0.6";
   };
 
   targets.genericLinux = lib.mkIf useNixGL {
@@ -200,38 +197,38 @@ in {
           selection-background = "#3c4e64";
           selection-foreground = "#e6e4f0";
         };
-        # Daytime counterpart: sage paper with moss, lake and ochre accents, all
-        # normal colors at WCAG AA (>= 4.5:1) on the background.
+        # Daytime counterpart: the neutral paper and ink of the Snappy-Light
+        # shell (#fafafb / #222226) and Firefox, flat like them, with moss, lake
+        # and ochre accents; all normal colors at WCAG AA (>= 4.5:1).
         snappy_light = {
           palette = [
-            "0=#4A5548" # ink2
+            "0=#3A3A3F" # ink2
             "1=#B03E45" # berry
             "2=#36703A" # moss
             "3=#7E5F0E" # ochre
             "4=#2A6E99" # lake
             "5=#8A4F8E" # heather
             "6=#1B726C" # teal
-            "7=#626B5E" # stone
+            "7=#6B6B70" # stone
 
-            "8=#7C8576" # lichen / muted gutter
+            "8=#86868B" # muted gutter
             "9=#B84B52"
             "10=#448246"
             "11=#937112"
             "12=#3779A3"
             "13=#965C9A"
             "14=#25857F"
-            "15=#1E261D" # deep ink
+            "15=#1C1C20" # deep ink
           ];
 
-          background = "#EEF0E4"; # sage paper
-          foreground = "#2A3329";
-          background-image = "${config.xdg.configHome}/ghostty/backgrounds/light.png";
-          background-image-fit = "cover";
+          background = "#FAFAFB";
+          foreground = "#222226";
           cursor-color = "#36703A";
-          cursor-text = "#EEF0E4";
+          cursor-text = "#FAFAFB";
 
-          selection-background = "#D8E2CC";
-          selection-foreground = "#2A3329";
+          # The shell's moss selection, rgba(54, 112, 58, 0.2) over the paper.
+          selection-background = "#D3DED4";
+          selection-foreground = "#222226";
         };
       };
       settings = {
