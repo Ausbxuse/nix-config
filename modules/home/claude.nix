@@ -30,6 +30,10 @@
       claude-opus-5-5.effortLevel = "high";
     };
     feedbackDrafts = "off";
+    # Keep the full-screen view but leave the mouse to tmux, so drags select
+    # and copy through tmux as everywhere else. tmux turns the wheel into
+    # Claude's ctrl+y / ctrl+e scroll keys (tmux.conf).
+    env.CLAUDE_CODE_DISABLE_MOUSE = "1";
   };
   mergeSettings = pkgs.writers.writePython3 "merge-claude-settings" {} ''
     import json
