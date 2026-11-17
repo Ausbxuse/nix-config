@@ -64,12 +64,22 @@
         os.replace(path + ".tmp", path)
         print("restored" if seeded else "updated float rules")
   '';
+  # nixpkgs carries Color Picker's GNOME 50 release, which Ubuntu's GNOME 46
+  # rejects as out of date. Release 44 is the last one for 46.
+  colorPickerGnome46 = pkgs.gnomeExtensions.color-picker.overrideAttrs {
+    version = "44";
+    src = pkgs.fetchzip {
+      url = "https://extensions.gnome.org/extension-data/color-pickertuberry.v44.shell-extension.zip";
+      hash = "sha256-UVtgAfRxhXnj1kyTeoLUsEHMVqeLE1HQbMqwVRYuqes=";
+      stripRoot = false;
+    };
+  };
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     astra-monitor
     blur-my-shell
     bluetooth-battery-meter
     caffeine
-    color-picker
+    colorPickerGnome46
     forge
     gsconnect
     media-controls
