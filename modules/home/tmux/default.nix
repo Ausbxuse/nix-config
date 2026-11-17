@@ -141,15 +141,24 @@ in {
     # Oneshot that only starts a server when none is running, and never kills
     # one: as Type=forking, starting it beside a running server exited at once,
     # so systemd ran ExecStop's kill-server. Logout ends the server anyway.
-    Service = {
+    # systemd's PATH has no Nix profile, and the server hands its PATH to every
+    # run-shell binding: their bare `tmux` then hit Ubuntu's /usr/bin/tmux 3.4,
+    # which cannot talk to this 3.8 server ("server exited unexpectedly").
+    Service = let
+      withPath = name: cmd:
+        pkgs.writeShellScript name ''
+          export PATH="${config.home.profileDirectory}/bin:$HOME/.local/bin:$PATH"
+          ${cmd}
+        '';
+    in {
       Type = "oneshot";
       RemainAfterExit = true;
       Environment = "TMUX_TMPDIR=%t";
-      ExecStart = "${pkgs.writeShellScript "tmux-start" ''
+      ExecStart = "${withPath "tmux-start" ''
         ${config.programs.tmux.package}/bin/tmux has-session 2>/dev/null ||
           exec ${config.programs.tmux.package}/bin/tmux new-session -d
       ''}";
-      ExecStop = "${builtins.dirOf pkgs.tmuxPlugins.resurrect.rtp}/scripts/save.sh";
+      ExecStop = "${withPath "tmux-save" "exec ${builtins.dirOf pkgs.tmuxPlugins.resurrect.rtp}/scripts/save.sh"}";
       KillMode = "process";
     };
     Install.WantedBy = ["default.target"];
