@@ -435,6 +435,10 @@ with lib.hm.gvariant; {
 
     "org/gnome/shell/extensions/display-brightness-ddcutil" = {
       ddcutil-binary-path = "${config.home.profileDirectory}/bin/ddcutil";
+      # Each change: 60 ms instead of 110-330. Both monitors are known to speak
+      # DDC/CI, so skip probing them and reading the value back.
+      ddcutil-additional-args = "--noverify --skip-ddc-checks";
+      ddcutil-queue-ms = 70.0;
     };
 
     "org/gnome/shell/extensions/color-picker" = {

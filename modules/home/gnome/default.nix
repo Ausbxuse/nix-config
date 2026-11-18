@@ -87,6 +87,19 @@
     gnome46Release pkgs.gnomeExtensions.brightness-control-using-ddcutil
     "display-brightness-ddcutilthemightydeity.github.com" "55"
     "sha256-K0TrwaXFYtRhlP/3b+fTvK9ATBjkhnP2B8DwQBE66T4=";
+  # Forge, but a window it would size to fill a monitor (alone there, gaps
+  # hidden) is maximized instead, so GTK apps drop their rounded corners.
+  forgeMaximizeSole = pkgs.gnomeExtensions.forge.overrideAttrs (old: {
+    postInstall =
+      (old.postInstall or "")
+      + ''
+        f="$out/share/gnome-shell/extensions/forge@jmmaranan.com/lib/extension/window.js"
+        substituteInPlace "$f" --replace-fail \
+          $'  move(metaWindow, rect) {\n    if (!metaWindow) return;\n    if (metaWindow.grabbed) return;\n' \
+          "$(printf '  move(metaWindow, rect) {\n    if (!metaWindow) return;\n    if (metaWindow.grabbed) return;\n'; cat ${./forge/maximize-sole-window.js})
+        "
+      '';
+  });
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     agentDots
     astra-monitor
@@ -95,7 +108,7 @@
     caffeine
     colorPickerGnome46
     ddcutilBrightnessGnome46
-    forge
+    forgeMaximizeSole
     gsconnect
     media-controls
     night-light-slider-updated
