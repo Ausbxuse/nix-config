@@ -66,6 +66,12 @@
   '';
   # Agent Hub states as top-bar dots (pkgs/agent-hub/gnome).
   agentDots = pkgs.callPackage ../../../pkgs/agent-hub/gnome {};
+  # Which side of your line of sight each Ghostty window is on, for tmux's
+  # reading-width layout (modules/home/tmux/reading-width.sh).
+  terminalSide = pkgs.runCommand "gnome-shell-extension-terminal-side" {} ''
+    mkdir -p $out/share/gnome-shell/extensions
+    cp -r ${./terminal-side} $out/share/gnome-shell/extensions/terminal-side@local
+  '';
   # nixpkgs carries each extension's newest release, built for GNOME 49/50,
   # which Ubuntu's GNOME 46 rejects as out of date. Pin the extensions.gnome.org
   # release made for 46; nixpkgs' build still compiles the schemas.
@@ -102,6 +108,7 @@
   });
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     agentDots
+    terminalSide
     astra-monitor
     blur-my-shell
     bluetooth-battery-meter
@@ -426,6 +433,7 @@ in {
     # gnome-extension-manager
     gnome-tweaks
     agentDots
+    terminalSide
     gnomeExtensions.astra-monitor
     # gnomeExtensions.colortint
     gnomeExtensions.media-controls

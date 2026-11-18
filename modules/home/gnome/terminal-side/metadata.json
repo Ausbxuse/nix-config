@@ -1,0 +1,7 @@
+{
+  "uuid": "terminal-side@local",
+  "name": "Terminal Side",
+  "description": "Tells the tmux reading-width layout which side of the primary monitor's centre each Ghostty window is on.",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "version": 1
+}
