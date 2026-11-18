@@ -66,16 +66,27 @@
   '';
   # Agent Hub states as top-bar dots (pkgs/agent-hub/gnome).
   agentDots = pkgs.callPackage ../../../pkgs/agent-hub/gnome {};
-  # nixpkgs carries Color Picker's GNOME 50 release, which Ubuntu's GNOME 46
-  # rejects as out of date. Release 44 is the last one for 46.
-  colorPickerGnome46 = pkgs.gnomeExtensions.color-picker.overrideAttrs {
-    version = "44";
-    src = pkgs.fetchzip {
-      url = "https://extensions.gnome.org/extension-data/color-pickertuberry.v44.shell-extension.zip";
-      hash = "sha256-UVtgAfRxhXnj1kyTeoLUsEHMVqeLE1HQbMqwVRYuqes=";
-      stripRoot = false;
+  # nixpkgs carries each extension's newest release, built for GNOME 49/50,
+  # which Ubuntu's GNOME 46 rejects as out of date. Pin the extensions.gnome.org
+  # release made for 46; nixpkgs' build still compiles the schemas.
+  gnome46Release = ext: slug: version: hash:
+    ext.overrideAttrs {
+      inherit version;
+      src = pkgs.fetchzip {
+        url = "https://extensions.gnome.org/extension-data/${slug}.v${version}.shell-extension.zip";
+        inherit hash;
+        stripRoot = false;
+      };
     };
-  };
+  colorPickerGnome46 =
+    gnome46Release pkgs.gnomeExtensions.color-picker "color-pickertuberry" "44"
+    "sha256-UVtgAfRxhXnj1kyTeoLUsEHMVqeLE1HQbMqwVRYuqes=";
+  # Per-monitor brightness sliders over DDC/CI. Needs i2c access, granted once
+  # with sudo by machines/gpu-004/ddc-access.sh.
+  ddcutilBrightnessGnome46 =
+    gnome46Release pkgs.gnomeExtensions.brightness-control-using-ddcutil
+    "display-brightness-ddcutilthemightydeity.github.com" "55"
+    "sha256-K0TrwaXFYtRhlP/3b+fTvK9ATBjkhnP2B8DwQBE66T4=";
   genericLinuxUserExtensions = with pkgs.gnomeExtensions; [
     agentDots
     astra-monitor
@@ -83,6 +94,7 @@
     bluetooth-battery-meter
     caffeine
     colorPickerGnome46
+    ddcutilBrightnessGnome46
     forge
     gsconnect
     media-controls
@@ -393,6 +405,7 @@ in {
   home.packages = with pkgs;
     [
     wlClipboardGnomeShim
+    ddcutil # monitor brightness over DDC/CI
     capitaine-cursors
     # pinentry
     gnome-monitor-config
